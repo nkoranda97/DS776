@@ -21,13 +21,15 @@ def detect_jupyter_environment():
         return "jupyterlab"
     else:
         return "Unknown"
+    
 environment = detect_jupyter_environment()
 
 if environment in ['vscode']:
     from tqdm import tqdm
 else:
     from tqdm.autonotebook import tqdm
-    
+
+
 from IPython.display import display, clear_output
 
 import numpy as np
@@ -340,6 +342,26 @@ def train_network(model, loss_func, train_loader, val_loader=None, test_loader=N
         del optimizer
 
     return pd.DataFrame.from_dict(results)
+
+def check_and_install_packages(packages):
+    """
+    Check if the given packages are installed, and if not, install them.
+    
+    :param packages: List of package names to check and install if necessary.
+    """
+    environment = detect_jupyter_environment()
+    
+    for package_name in packages:
+        try:
+            importlib.import_module(package_name)
+            print(f"'{package_name}' is already installed.")
+        except ImportError:
+            print(f"'{package_name}' is not installed. Installing now...")
+            if environment == "cocalc":
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "--user", package_name])
+            else:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
+            print(f"'{package_name}' has been installed.")
 
 ### RNN utility Classes 
 
