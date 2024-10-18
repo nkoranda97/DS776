@@ -1,0 +1,21 @@
+from .visul import show_image_grid
+from .visul import show_image_grid_old
+from .visul import visualize2DSoftmax
+from .visul import vis_feature_maps
+from .visul import vis_feature_maps_widget
+from .visul import plot_training_metrics
+from .visul import plot_training_metrics_widget
+from .visul import activations_widget
+from .visul import interactive_mnist_prediction
+
+__all__ = [
+    "show_image_grid",
+    "show_image_grid_old",
+    "visualize2DSoftmax",
+    "vis_feature_maps",
+    "vis_feature_maps_widget",
+    "plot_training_metrics",
+    "train_metrics_widget",
+    "activations_widget",
+    "interactive_mnist_prediction"
+]

@@ -1,0 +1,11 @@
+IPython
+ipywidgets
+ipycanvas
+matplotlib
+numpy
+pandas
+scipy
+seaborn
+torch
+torchvision
+tqdm
