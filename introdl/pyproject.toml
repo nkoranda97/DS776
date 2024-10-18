@@ -19,6 +19,7 @@ dependencies = [
     "scipy",
     "seaborn",
     "torch",
+    "torchinfo",
     "torchvision",
     "tqdm"
 ]
