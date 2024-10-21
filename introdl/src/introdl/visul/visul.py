@@ -284,6 +284,7 @@ def plot_activation_functions(selected_activations):
     for activation in selected_activations:
         if activation not in activation_functions.keys():
             raise ValueError(f"Invalid activation function: {activation}")
+        func = activation_functions[activation]
         y, dy_func = func(x)
         dy = dy_func(y)
 

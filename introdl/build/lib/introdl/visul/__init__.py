@@ -7,6 +7,7 @@ from .visul import plot_training_metrics
 from .visul import plot_training_metrics_widget
 from .visul import activations_widget
 from .visul import interactive_mnist_prediction
+from .visul import plot_activation_functions
 
 __all__ = [
     "show_image_grid",
@@ -17,5 +18,6 @@ __all__ = [
     "plot_training_metrics",
     "train_metrics_widget",
     "activations_widget",
-    "interactive_mnist_prediction"
+    "interactive_mnist_prediction",
+    "plot_activation_functions"
 ]
