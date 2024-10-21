@@ -247,70 +247,86 @@ def visualize_filters(model, layer_idx=1, padding=1, scale=1.0):
     plt.tight_layout()
     plt.show()
 
-def activations_widget():
-    # Define the activation functions
-    activation_functions = {
-        "sigmoid": lambda x: (1 / (1 + np.exp(-x)), lambda y: y * (1 - y)),
-        "ReLU": lambda x: (np.maximum(0, x), lambda y: np.where(x > 0, 1, 0)),
-        "tanh": lambda x: (np.tanh(x), lambda y: 1 - y ** 2),
-        "LeakyReLU": lambda x: (np.where(x > 0, x, 0.1 * x), lambda y: np.where(x > 0, 1, 0.1 * np.ones_like(x))),
-        "GELU": lambda x: (x * 0.5 * (1 + erf(x / np.sqrt(2))), lambda y: 0.5 * (1 + erf(x / np.sqrt(2))) + (x * np.exp(-0.5 * x ** 2)) / np.sqrt(2 * np.pi)),
-        "swish": lambda x: (x / (1 + np.exp(-x)), lambda y: (1 + np.exp(-x) + x * np.exp(-x)) / (1 + np.exp(-x)) ** 2),
+################ Plotting Activation Functions ################
+
+activation_functions = {
+    "sigmoid": lambda x: (1 / (1 + np.exp(-x)), lambda y: y * (1 - y)),
+    "ReLU": lambda x: (np.maximum(0, x), lambda y: np.where(x > 0, 1, 0)),
+    "tanh": lambda x: (np.tanh(x), lambda y: 1 - y ** 2),
+    "LeakyReLU": lambda x: (np.where(x > 0, x, 0.1 * x), lambda y: np.where(x > 0, 1, 0.1 * np.ones_like(x))),
+    "GELU": lambda x: (x * 0.5 * (1 + erf(x / np.sqrt(2))), lambda y: 0.5 * (1 + erf(x / np.sqrt(2))) + (x * np.exp(-0.5 * x ** 2)) / np.sqrt(2 * np.pi)),
+    "swish": lambda x: (x / (1 + np.exp(-x)), lambda y: (1 + np.exp(-x) + x * np.exp(-x)) / (1 + np.exp(-x)) ** 2),
+}
+
+# Define the function to plot selected activation functions
+def plot_activation_functions(selected_activations):
+    """
+    Plots the activation functions and their derivatives.
+
+    Parameters:
+    - selected_activations (str or list): A string or a list of activation function names.
+        Possible activation function names: 'sigmoid', 'ReLU', 'tanh', 'LeakyReLU', 'GELU', 'swish'
+
+    Returns:
+    None
+    """
+    x = np.linspace(-6, 6, 100)
+    data = {
+        "x": [],
+        "value": [],
+        "derivative": [],
+        "activation": [],
     }
 
-    # Define the function to plot selected activation functions
-    def _plot_activation_functions(selected_activations):
-        x = np.linspace(-6, 6, 100)
-        data = {
-            "x": [],
-            "value": [],
-            "derivative": [],
-            "activation": [],
-        }
+    if isinstance(selected_activations, str):
+        selected_activations = [selected_activations]
 
-        for activation in selected_activations:
-            func = activation_functions[activation]
-            y, dy_func = func(x)
-            dy = dy_func(y)
+    for activation in selected_activations:
+        if activation not in activation_functions.keys():
+            raise ValueError(f"Invalid activation function: {activation}")
+        y, dy_func = func(x)
+        dy = dy_func(y)
 
-            # Append data for plotting
-            data["x"].extend(x)
-            data["value"].extend(y)
-            data["derivative"].extend(dy)
-            data["activation"].extend([activation] * len(x))
+        # Append data for plotting
+        data["x"].extend(x)
+        data["value"].extend(y)
+        data["derivative"].extend(dy)
+        data["activation"].extend([activation] * len(x))
 
-        # Create DataFrame from the collected data
-        df = pd.DataFrame(data)
+    # Create DataFrame from the collected data
+    df = pd.DataFrame(data)
 
-        # Set up the plotting style and layout
-        sns.set(style="whitegrid", palette="muted")
-        fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(10, 4))  # Adjusted aspect ratio
+    # Set up the plotting style and layout
+    sns.set(style="whitegrid", palette="muted")
+    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(10, 4))  # Adjusted aspect ratio
 
-        # Plot activation functions
-        sns.lineplot(
-            data=df, 
-            x="x", 
-            y="value", 
-            hue="activation", 
-            style="activation", 
-            ax=axes[0]
-        )
-        axes[0].set_title("Activation Functions")
-        axes[0].legend(title='Activation')
+    # Plot activation functions
+    sns.lineplot(
+        data=df, 
+        x="x", 
+        y="value", 
+        hue="activation", 
+        style="activation", 
+        ax=axes[0]
+    )
+    axes[0].set_title("Activation Functions")
+    axes[0].legend(title='Activation')
 
-        # Plot derivatives of activation functions
-        sns.lineplot(
-            data=df, 
-            x="x", 
-            y="derivative", 
-            hue="activation", 
-            style="activation", 
-            ax=axes[1]
-        )
-        axes[1].set_title("Derivatives")
-        axes[1].legend(title="Activation'")
+    # Plot derivatives of activation functions
+    sns.lineplot(
+        data=df, 
+        x="x", 
+        y="derivative", 
+        hue="activation", 
+        style="activation", 
+        ax=axes[1]
+    )
+    axes[1].set_title("Derivatives")
+    axes[1].legend(title="Activation'")
 
-        plt.show()
+    plt.show()
+
+def activations_widget():
 
     # Create a widget for selecting activation functions
     activation_selector = widgets.SelectMultiple(
@@ -321,11 +337,15 @@ def activations_widget():
     )
 
     # Use the interactive function to connect the selector widget to the plot function
-    interactive_plot = interactive(_plot_activation_functions, selected_activations=activation_selector)
+    interactive_plot = interactive(plot_activation_functions, selected_activations=activation_selector)
     output = interactive_plot.children[-1]
     output.layout.height = '500px'
     display(interactive_plot)
 
+
+########################################################
+# Feauture Map Visualization Related Functions
+########################################################
 
 def vis_feature_maps(dataset, model, target_index, mean, std, layer=1, activation=None, pooling=None, original_image_size=(5, 5), feature_maps_size=(10, 10), cmap_name='PuOr'):
     """
