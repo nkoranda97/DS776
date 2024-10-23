@@ -7,6 +7,7 @@ import os
 import numpy as np
 import pandas as pd
 import inspect
+from torchinfo import summary
 
 ###########################################################
 # Utility Functions
@@ -69,3 +70,16 @@ def load_model(model, checkpoint_file, device=torch.device('cpu')):
     checkpoint_dict = torch.load(checkpoint_file)
     model.load_state_dict(checkpoint_dict['model_state_dict']) 
     return model.to(device)
+
+def summarizer(model, input_size, device=torch.device('cpu'), col_width=20):
+    """
+    Summarizes the given model by displaying the input size, output size, and number of parameters.
+
+    Parameters:
+    - model: The model to summarize.
+    - input_size (tuple): The input size of the model.
+    - device (torch.device, optional): The device to summarize the model on. Defaults to 'cpu'.
+    - col_width (int, optional): The width of each column in the summary table. Defaults to 20.
+    """
+    model = model.to(device)
+    summary(model, input_size=input_size, col_width=col_width, col_names=["input_size", "output_size", "num_params"])
