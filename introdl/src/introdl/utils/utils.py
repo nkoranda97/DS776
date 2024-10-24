@@ -82,4 +82,4 @@ def summarizer(model, input_size, device=torch.device('cpu'), col_width=20):
     - col_width (int, optional): The width of each column in the summary table. Defaults to 20.
     """
     model = model.to(device)
-    summary(model, input_size=input_size, col_width=col_width, col_names=["input_size", "output_size", "num_params"])
+    print(summary(model, input_size=input_size, col_width=col_width, col_names=["input_size", "output_size", "num_params"]))
