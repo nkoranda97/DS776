@@ -3,7 +3,7 @@
 <html lang="en">
 <head><meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>L01_0_Overview</title><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.10/require.min.js"></script>
+<title>L02_3_Canvas_Quiz_Questions</title><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.10/require.min.js"></script>
 <style type="text/css">
     pre { line-height: 125%; }
 td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
@@ -7516,103 +7516,115 @@ a.anchor-link {
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Lesson-1">Lesson 1<a class="anchor-link" href="#Lesson-1">¶</a></h2><h3 id="Outcomes">Outcomes<a class="anchor-link" href="#Outcomes">¶</a></h3><ol>
-<li><strong>Understand deep learning fundamentals</strong>, including the structure of neural networks.</li>
-<li><strong>Utilize PyTorch datasets and data loaders</strong> to efficiently handle and preprocess data for training deep learning models.</li>
-<li><strong>Develop and train basic fully connected neural networks</strong> in PyTorch, applying optimization techniques and appropriate loss functions.</li>
-<li><strong>Evaluate model performance</strong> by plotting loss functions and other metrics.</li>
-<li><strong>Make predictions for new data</strong> by applying a trained neural network to new inputs.</li>
+<h2 id="Lesson-2---Reading-and-Video-Quiz-for-Canvas">Lesson 2 - Reading and Video Quiz for Canvas<a class="anchor-link" href="#Lesson-2---Reading-and-Video-Quiz-for-Canvas">¶</a></h2><ol>
+<li><p><strong>What is the primary advantage of using convolutional layers in deep learning models?</strong></p>
+<p>A) They reduce the number of parameters compared to fully connected layers.<br/>
+B) They work better with tabular data.<br/>
+C) They are easier to implement than fully connected layers.<br/>
+D) They automatically handle overfitting in image data.</p>
+<p><strong>Answer</strong>: A) They reduce the number of parameters compared to fully connected layers.</p>
+</li>
 </ol>
-<h3 id="Readings-and-Videos">Readings and Videos<a class="anchor-link" href="#Readings-and-Videos">¶</a></h3><ul>
-<li><p><strong>Course Intro Notebook / Video</strong> (Still to come)</p>
+<hr/>
+<ol start="2">
+<li><p><strong>In a convolutional neural network (CNN), what does a <em>filter</em> or <em>kernel</em> do?</strong></p>
+<p>A) It combines features from different layers.<br/>
+B) It performs element-wise multiplication across input data to extract local features.<br/>
+C) It normalizes the output to stabilize learning.<br/>
+D) It shrinks the size of the input data using pooling operations.</p>
+<p><strong>Answer</strong>: B) It performs element-wise multiplication across input data to extract local features.</p>
 </li>
-<li><p><strong>(Optional) Review Neural Networks from DS740</strong></p>
-<ul>
-<li>You might want to review the first 14 slides of the <a href="https://media.uwex.edu/content/ds/ds740_r23/ds740_artificial-neural-networks.sbproj/">Lesson on Neural networks in DS740</a>.  We're covering similar material this week.  Don't review the material about neural networks in R since we'll be using Python.</li>
-</ul>
-</li>
-<li><p><strong>Readings from Inside Deep Learning (IDL)</strong></p>
-<ul>
-<li><p><strong>Chapter 1: The Mechanics of Learning</strong></p>
-<ul>
-<li><strong>Read Sections 1.2, 1.4, and 1.5</strong>. Skim the other sections. No need to understand the detailed code or the backpropagation algorithm, but ensure you understand how the gradient is used in training.</li>
-</ul>
-</li>
-<li><p><strong>Chapter 2: Fully Connected Networks</strong></p>
-<ul>
-<li><strong>Section 2.1</strong>: Focus on understanding the training loop structure and process. Skip the code details but grasp the concept.<ul>
-<li>Don’t worry about the math notation at the bottom of page 40. It's shorthand for a fully connected linear layer. If you want to learn more about matrix multiplication see the videos listed under Auxiliary Materials below.</li>
-</ul>
-</li>
-<li><strong>Section 2.2</strong>: Understand how activation functions introduce nonlinearity into networks.</li>
-<li><strong>Section 2.3</strong>: Grasp the basics of softmax and cross-entropy, especially how the loss function changes for classification tasks. An example will be explained in a notebook and video.</li>
-<li><strong>Section 2.4</strong>: Note the key concepts; they will be reinforced in video lectures.</li>
-<li><strong>Section 2.5</strong>: Understand the importance of batch training, particularly for large datasets that won’t fit in memory.</li>
-</ul>
-</li>
-</ul>
-</li>
-<li><p><strong>Course Notebooks with Videos</strong>  Open each of the notebooks included in the lesson folder and watch the embedded video.  You can read along and work through the code examples as needed.  The notebooks for this lesson are in the Lesson_01 directory.  The notebooks are numbered in the order they should be used.</p>
-</li>
-</ul>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="Assessments">Assessments<a class="anchor-link" href="#Assessments">¶</a></h3><ol>
-<li>Complete the reading quiz in Canvas (10 points).</li>
-<li>Complete the exercises in your the homework notebook in CoCalc (40 points).</li>
 </ol>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="Auxiliary-Materials">Auxiliary Materials<a class="anchor-link" href="#Auxiliary-Materials">¶</a></h3><h4 id="Background-Mathematics">Background Mathematics<a class="anchor-link" href="#Background-Mathematics">¶</a></h4><p>If you want to understand the theory of building and training neural networks you likely need some background in multivariate calculus and linear algebra.  To work with and apply neural networks you can by with just a little math.</p>
-<ul>
-<li><p><strong>Matrices, Vectors, and Gradients.</strong> Having some idea about matrices, vectors and gradients is a good idea.  Dr. Anne Hsu has recorded some helpful videos on many topics related to introductory deep learning:</p>
-<ul>
-<li><a href="https://www.youtube.com/watch?v=sM2Mm6aT_HI">Matrices and Vectors</a></li>
-<li><a href="https://www.youtube.com/watch?v=Fiw0_w4AykA">Derivatives and Gradients 1</a></li>
-<li><a href="https://www.youtube.com/watch?v=qORZmKCB0g8">Derivatives and Gradients 2</a></li>
-<li><a href="https://www.youtube.com/@drannehsu/playlists">Playlist for entire Intro to Deep Learning</a></li>
-</ul>
+<hr/>
+<ol start="3">
+<li><p><strong>What is the role of <em>padding</em> in convolutional layers?</strong></p>
+<p>A) It increases the size of the input to match the filter size.<br/>
+B) It adjusts the learning rate during training.<br/>
+C) It preserves the spatial dimensions of the input after applying convolutions.<br/>
+D) It normalizes the input data for improved accuracy.</p>
+<p><strong>Answer</strong>: C) It preserves the spatial dimensions of the input after applying convolutions.</p>
 </li>
-<li><p><strong>Mathematics for Machine Learning and Data Science.</strong> This specialization includes linear algebra, calculus, and probability and statistics.  It's too much to pick up for a quick introduction but would be terrific for a deeper dive:</p>
-<ul>
-<li><a href="https://www.coursera.org/specializations/mathematics-for-machine-learning-and-data-science?">Coursera three course specialization</a></li>
-</ul>
+</ol>
+<hr/>
+<ol start="4">
+<li><p><strong>How does <em>weight sharing</em> benefit convolutional neural networks (CNNs)?</strong></p>
+<p>A) It reduces the overall computational cost by applying the same weights across different parts of the input.<br/>
+B) It improves the model’s ability to detect fine details in the input data.<br/>
+C) It increases the accuracy of predictions by introducing randomness.<br/>
+D) It ensures that each layer has unique weights for every feature map.</p>
+<p><strong>Answer</strong>: A) It reduces the overall computational cost by applying the same weights across different parts of the input.</p>
 </li>
-</ul>
-<h4 id="Other-Deep-Learning-Resources:">Other Deep Learning Resources:<a class="anchor-link" href="#Other-Deep-Learning-Resources:">¶</a></h4><ul>
-<li><p><strong>Deep Learning Basics: Introduction and Overview</strong>  Lex Fridman is a well known podcast host for AI and Data Science.  Here he gives an <a href="https://youtu.be/O5xeyoRL95U?si=SrM7RLWB_iBPMiK4">introductory lecture</a> for MIT's public deep learning class.  Since it was recorded in 2019 it doesn't include the latest on transformer architectures that are driving the current boom in AI (ChatGPT, etc.), it's still a really nice introduction that discusses many applications of deep learning.  Watch this if you want a good overview.  I also recommend his podcast.</p>
+</ol>
+<hr/>
+<ol start="5">
+<li><p><strong>What does the term <em>stride</em> refer to in the context of a convolutional neural network (CNN)?</strong></p>
+<p>A) The number of pixels shifted by the filter across the input.<br/>
+B) The size of the filter applied during convolution.<br/>
+C) The number of layers in the network.<br/>
+D) The depth of the convolutional filter.</p>
+<p><strong>Answer</strong>: A) The number of pixels shifted by the filter across the input.</p>
 </li>
-<li><p><strong>Neural Networks and Deep Learning.</strong> Andrew Ng is a big name in AI and I love listening to him.  This <a href="https://www.youtube.com/playlist?list=PLkDaE6sCZn6Ec-XTbcX1uRg2_u4xOEky0">playlist</a> is all the videos from the first course of his Deep Learning Specialization on Coursera.  This is a really great resource for a deep learning introduction.</p>
+</ol>
+<hr/>
+<ol start="6">
+<li><p><strong>Why is using multiple filters in each convolutional layer important for a CNN?</strong></p>
+<p>A) It helps reduce overfitting by introducing randomness.<br/>
+B) It allows the network to learn multiple features, such as edges and textures, at different locations.<br/>
+C) It increases the size of the input, improving accuracy.<br/>
+D) It helps stabilize the gradients during training.</p>
+<p><strong>Answer</strong>: B) It allows the network to learn multiple features, such as edges and textures, at different locations.</p>
 </li>
-<li><p><strong>Introduction to Deep Learning from MIT</strong> <a href="http://introtodeeplearning.com/">Free public course</a> updated annually.  The beginning lecture is very accessible.</p>
+</ol>
+<hr/>
+<ol start="7">
+<li><p><strong>Which of the following is a key benefit of using <em>max pooling</em> in CNNs?</strong></p>
+<p>A) It reduces computational complexity while preserving important features.<br/>
+B) It increases the resolution of the output.<br/>
+C) It prevents overfitting by adding random noise to the input.<br/>
+D) It enhances the sensitivity of the network to minor input variations.</p>
+<p><strong>Answer</strong>: A) It reduces computational complexity while preserving important features.</p>
 </li>
-<li><p><strong>Activation Functions</strong> There are more than the three activation functions we discussed in our video.  <a href="https://dublog.net/blog/all-the-activations/">All the Activation Functions</a> is a quick summary of most of activation functions used in deep learning.</p>
+</ol>
+<hr/>
+<ol start="8">
+<li><p><strong>A batch of images with dimensions $(10, 3, 64, 64)$ is passed through a convolutional layer with 32 filters, a filter size of $3 \times 3$, a stride of 1, and no padding. What will be the dimensions of the output batch?</strong></p>
+<p>PyTorch code:</p>
+<div class="highlight"><pre><span></span><span class="n">conv</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Conv2d</span><span class="p">(</span><span class="n">in_channels</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">out_channels</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">kernel_size</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">padding</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</pre></div>
+<p>A) $(10, 32, 62, 62)$<br/>
+B) $(10, 32, 64, 64)$<br/>
+C) $(10, 32, 60, 60)$<br/>
+D) $(10, 32, 66, 66)$</p>
+<p><strong>Answer</strong>: A) $(10, 32, 62, 62)$</p>
 </li>
-</ul>
-<h4 id="Programming-and-PyTorch-Resources">Programming and PyTorch Resources<a class="anchor-link" href="#Programming-and-PyTorch-Resources">¶</a></h4><ul>
-<li><p><strong>Object-Oriented Programming</strong> It helps to have a basic familiarity with classes, inheritance, and methods for finding your way around in PyTorch.  <a href="https://realpython.com/python3-object-oriented-programming/">Real Python has a great tutorial</a> on the basics of OOP with many code examples that you can either read or watch (40 minutes).</p>
+</ol>
+<hr/>
+<ol start="9">
+<li><p><strong>A batch of 16 images with dimensions $(16, 3, 128, 128)$ is passed through a max pooling layer with a filter size of $2 \times 2$ and a stride of 2. What are the dimensions of the output after pooling?</strong></p>
+<p>PyTorch code:</p>
+<div class="highlight"><pre><span></span><span class="n">pool</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">MaxPool2d</span><span class="p">(</span><span class="n">kernel_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+</pre></div>
+<p>A) $(16, 3, 128, 128)$<br/>
+B) $(16, 3, 64, 64)$<br/>
+C) $(16, 3, 126, 126)$<br/>
+D) $(16, 3, 32, 32)$</p>
+<p><strong>Answer</strong>: B) $(16, 3, 64, 64)$</p>
 </li>
-<li><p><strong>PyTorch Tutorials</strong> The <a href="https://pytorch.org/tutorials/">official PyTorch tutorials</a> are quite good.  For Lesson 1 the tutorials on tensors (both <a href="https://pytorch.org/tutorials/beginner/basics/tensorqs_tutorial.html">written</a> and on <a href="https://pytorch.org/tutorials/beginner/introyt/tensors_deeper_tutorial.html">YouTube</a>) and on <a href="https://pytorch.org/tutorials/beginner/basics/data_tutorial.html">Datasets &amp; DataLoaders</a> might be of interest.  The <a href="https://pytorch.org/tutorials/beginner/basics/buildmodel_tutorial.html">Build the Neural Network tutorial</a> also breaks down the ingredients in a fully connected network.</p>
-</li>
-<li><p><strong>PyTorch Documentation</strong> This often isn't as useful as the tutorials, but you can find information about <a href="https://pytorch.org/docs/stable/index.html">everything PyTorch here</a>.  One nugget that might be helpful for Lesson 1 is the the <a href="https://pytorch.org/tutorials/beginner/basics/data_tutorial.html">documentation for torch.Tensor</a> which shows the available data types.</p>
-</li>
-</ul>
+</ol>
+<hr/>
+<ol start="10">
+<li><strong>A batch of feature maps with dimensions $(8, 16, 32, 32)$ is passed through a convolutional layer with 64 filters, a filter size of $5\times 5$, a stride of 1, and padding of 2, followed by a max pooling layer with a filter size of $2\times2$ and a stride of 2. What will be the final output dimensions?</strong></li>
+</ol>
+<p>PyTorch code:</p>
+<div class="highlight"><pre><span></span><span class="n">conv</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Conv2d</span><span class="p">(</span><span class="n">in_channels</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">out_channels</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">kernel_size</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">padding</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<span class="n">pool</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">MaxPool2d</span><span class="p">(</span><span class="n">kernel_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+</pre></div>
+<p>A) $(8, 64, 32, 32)$<br/>
+B) $(8, 64, 28, 28)$<br/>
+C) $(8, 64, 16, 16)$<br/>
+D) $(8, 64, 14, 14)$</p>
+<p><strong>Answer</strong>: C) $(8, 64, 16, 16)$</p>
+<hr/>
 </div>
 </div>
 </div>
