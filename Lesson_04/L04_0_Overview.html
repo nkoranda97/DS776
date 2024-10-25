@@ -3,7 +3,7 @@
 <html lang="en">
 <head><meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>L02_3_Canvas_Quiz_Questions</title><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.10/require.min.js"></script>
+<title>L04_0_Overview</title><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.10/require.min.js"></script>
 <style type="text/css">
     pre { line-height: 125%; }
 td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
@@ -7516,115 +7516,21 @@ a.anchor-link {
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Lesson-2---Reading-and-Video-Quiz-for-Canvas">Lesson 2 - Reading and Video Quiz for Canvas<a class="anchor-link" href="#Lesson-2---Reading-and-Video-Quiz-for-Canvas">¶</a></h2><ol>
-<li><p><strong>What is the primary advantage of using convolutional layers in deep learning models?</strong></p>
-<p>A) They reduce the number of parameters compared to fully connected layers.<br/>
-B) They work better with tabular data.<br/>
-C) They are easier to implement than fully connected layers.<br/>
-D) They automatically handle overfitting in image data.</p>
-<p><strong>Answer</strong>: A) They reduce the number of parameters compared to fully connected layers.</p>
+<h2 id="Lesson-04---Overview">Lesson 04 - Overview<a class="anchor-link" href="#Lesson-04---Overview">¶</a></h2><h3 id="Outcomes">Outcomes<a class="anchor-link" href="#Outcomes">¶</a></h3><ol>
+<li><strong>Understand and apply ReLU and LeakyReLU activations</strong> to address vanishing gradient problems and enhance network convergence.</li>
+<li><strong>Implement batch and layer normalization</strong> to stabilize training and improve network performance.</li>
+<li><strong>Analyze and utilize residual connections</strong> to enable deeper network architectures by mitigating vanishing gradient issues.</li>
+</ol>
+<h3 id="Readings-and-Videos">Readings and Videos<a class="anchor-link" href="#Readings-and-Videos">¶</a></h3><ul>
+<li><p>Read Sections 6.1-6.4 from Inside Deep Learning</p>
 </li>
-</ol>
-<hr/>
-<ol start="2">
-<li><p><strong>In a convolutional neural network (CNN), what does a <em>filter</em> or <em>kernel</em> do?</strong></p>
-<p>A) It combines features from different layers.<br/>
-B) It performs element-wise multiplication across input data to extract local features.<br/>
-C) It normalizes the output to stabilize learning.<br/>
-D) It shrinks the size of the input data using pooling operations.</p>
-<p><strong>Answer</strong>: B) It performs element-wise multiplication across input data to extract local features.</p>
+<li><p><strong>Course Notebooks with Videos</strong>  Open each of the notebooks included the lesson folder and watch the embedded video.  You can read along and work through the code examples as you want.  The notebooks are numbered in the order they should be used.</p>
 </li>
+</ul>
+<h3 id="Assessments">Assessments<a class="anchor-link" href="#Assessments">¶</a></h3><ol>
+<li>Complete the reading quiz in Canvas (10 points).</li>
+<li>Complete the exercises in your the homework notebook in CoCalc (40 points).</li>
 </ol>
-<hr/>
-<ol start="3">
-<li><p><strong>What is the role of <em>padding</em> in convolutional layers?</strong></p>
-<p>A) It increases the size of the input to match the filter size.<br/>
-B) It adjusts the learning rate during training.<br/>
-C) It preserves the spatial dimensions of the input after applying convolutions.<br/>
-D) It normalizes the input data for improved accuracy.</p>
-<p><strong>Answer</strong>: C) It preserves the spatial dimensions of the input after applying convolutions.</p>
-</li>
-</ol>
-<hr/>
-<ol start="4">
-<li><p><strong>How does <em>weight sharing</em> benefit convolutional neural networks (CNNs)?</strong></p>
-<p>A) It reduces the overall computational cost by applying the same weights across different parts of the input.<br/>
-B) It improves the model’s ability to detect fine details in the input data.<br/>
-C) It increases the accuracy of predictions by introducing randomness.<br/>
-D) It ensures that each layer has unique weights for every feature map.</p>
-<p><strong>Answer</strong>: A) It reduces the overall computational cost by applying the same weights across different parts of the input.</p>
-</li>
-</ol>
-<hr/>
-<ol start="5">
-<li><p><strong>What does the term <em>stride</em> refer to in the context of a convolutional neural network (CNN)?</strong></p>
-<p>A) The number of pixels shifted by the filter across the input.<br/>
-B) The size of the filter applied during convolution.<br/>
-C) The number of layers in the network.<br/>
-D) The depth of the convolutional filter.</p>
-<p><strong>Answer</strong>: A) The number of pixels shifted by the filter across the input.</p>
-</li>
-</ol>
-<hr/>
-<ol start="6">
-<li><p><strong>Why is using multiple filters in each convolutional layer important for a CNN?</strong></p>
-<p>A) It helps reduce overfitting by introducing randomness.<br/>
-B) It allows the network to learn multiple features, such as edges and textures, at different locations.<br/>
-C) It increases the size of the input, improving accuracy.<br/>
-D) It helps stabilize the gradients during training.</p>
-<p><strong>Answer</strong>: B) It allows the network to learn multiple features, such as edges and textures, at different locations.</p>
-</li>
-</ol>
-<hr/>
-<ol start="7">
-<li><p><strong>Which of the following is a key benefit of using <em>max pooling</em> in CNNs?</strong></p>
-<p>A) It reduces computational complexity while preserving important features.<br/>
-B) It increases the resolution of the output.<br/>
-C) It prevents overfitting by adding random noise to the input.<br/>
-D) It enhances the sensitivity of the network to minor input variations.</p>
-<p><strong>Answer</strong>: A) It reduces computational complexity while preserving important features.</p>
-</li>
-</ol>
-<hr/>
-<ol start="8">
-<li><p><strong>A batch of images with dimensions $(10, 3, 64, 64)$ is passed through a convolutional layer with 32 filters, a filter size of $3 \times 3$, a stride of 1, and no padding. What will be the dimensions of the output batch?</strong></p>
-<p>PyTorch code:</p>
-<div class="highlight"><pre><span></span><span class="n">conv</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Conv2d</span><span class="p">(</span><span class="n">in_channels</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">out_channels</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">kernel_size</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">padding</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-</pre></div>
-<p>A) $(10, 32, 62, 62)$<br/>
-B) $(10, 32, 64, 64)$<br/>
-C) $(10, 32, 60, 60)$<br/>
-D) $(10, 32, 66, 66)$</p>
-<p><strong>Answer</strong>: A) $(10, 32, 62, 62)$</p>
-</li>
-</ol>
-<hr/>
-<ol start="9">
-<li><p><strong>A batch of 16 images with dimensions $(16, 3, 128, 128)$ is passed through a max pooling layer with a filter size of $2 \times 2$ and a stride of 2. What are the dimensions of the output after pooling?</strong></p>
-<p>PyTorch code:</p>
-<div class="highlight"><pre><span></span><span class="n">pool</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">MaxPool2d</span><span class="p">(</span><span class="n">kernel_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
-</pre></div>
-<p>A) $(16, 3, 128, 128)$<br/>
-B) $(16, 3, 64, 64)$<br/>
-C) $(16, 3, 126, 126)$<br/>
-D) $(16, 3, 32, 32)$</p>
-<p><strong>Answer</strong>: B) $(16, 3, 64, 64)$</p>
-</li>
-</ol>
-<hr/>
-<ol start="10">
-<li><strong>A batch of feature maps with dimensions $(8, 16, 32, 32)$ is passed through a convolutional layer with 64 filters, a filter size of $5\times 5$, a stride of 1, and padding of 2, followed by a max pooling layer with a filter size of $2\times2$ and a stride of 2. What will be the final output dimensions?</strong></li>
-</ol>
-<p>PyTorch code:</p>
-<div class="highlight"><pre><span></span><span class="n">conv</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Conv2d</span><span class="p">(</span><span class="n">in_channels</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">out_channels</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">kernel_size</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">padding</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
-<span class="n">pool</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">MaxPool2d</span><span class="p">(</span><span class="n">kernel_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
-</pre></div>
-<p>A) $(8, 64, 32, 32)$<br/>
-B) $(8, 64, 28, 28)$<br/>
-C) $(8, 64, 16, 16)$<br/>
-D) $(8, 64, 14, 14)$</p>
-<p><strong>Answer</strong>: C) $(8, 64, 16, 16)$</p>
-<hr/>
 </div>
 </div>
 </div>
