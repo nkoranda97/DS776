@@ -120,6 +120,7 @@ def run_epoch(model, optimizer, data_loader, loss_func, device, results, score_f
     return end - start  # Return time spent on epoch
 
 
+'''
 def train_simple_network(model, loss_func, train_loader, test_loader=None, score_funcs=None, 
                          epochs=50, device="cpu", checkpoint_file=None, lr=0.001, use_tqdm=True):
     """
@@ -197,532 +198,81 @@ def train_simple_network(model, loss_func, train_loader, test_loader=None, score
             }, checkpoint_file)
 
     return pd.DataFrame.from_dict(results)
-
-def set_seed(seed):
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-
-class Flatten(nn.Module):
-    def forward(self, input):
-        return input.view(input.size(0), -1)
-    
-class View(nn.Module):
-    def __init__(self, *shape):
-        super(View, self).__init__()
-        self.shape = shape
-    def forward(self, input):
-        return input.view(*self.shape) 
-    
-class LambdaLayer(nn.Module):
-    def __init__(self, lambd):
-        super(LambdaLayer, self).__init__()
-        self.lambd = lambd
-        
-    def forward(self, x):
-        return self.lambd(x)
-    
-class DebugShape(nn.Module):
-    """
-    Module that is useful to help debug your neural network architecture. 
-    Insert this module between layers and it will print out the shape of 
-    that layer. 
-    """
-    def forward(self, input):
-        print(input.shape)
-        return input
-    
-def weight_reset(m):
-    """
-    Go through a PyTorch module m and reset all the weights to an initial random state
-    """
-    if "reset_parameters" in dir(m):
-        m.reset_parameters()
-    return
-
-def moveTo(obj, device):
-    """
-    obj: the python object to move to a device, or to move its contents to a device
-    device: the compute device to move objects to
-    """
-    if hasattr(obj, "to"):
-        return obj.to(device)
-    elif isinstance(obj, list):
-        return [moveTo(x, device) for x in obj]
-    elif isinstance(obj, tuple):
-        return tuple(moveTo(list(obj), device))
-    elif isinstance(obj, set):
-        return set(moveTo(list(obj), device))
-    elif isinstance(obj, dict):
-        to_ret = dict()
-        for key, value in obj.items():
-            to_ret[moveTo(key, device)] = moveTo(value, device)
-        return to_ret
-    else:
-        return obj
-        
 '''
-def train_network(model, loss_func, train_loader, val_loader=None, test_loader=None, score_funcs=None, 
-                  epochs=50, device="cpu", checkpoint_file=None, lr_schedule=None, optimizer=None, 
-                  disable_tqdm=False, resume_file=None, resume_checkpoint=False):
+
+def train_simple_network(model, loss_func, train_loader, test_loader=None, score_funcs=None, 
+                         epochs=50, device="cpu", checkpoint_file=None, lr=0.001, use_tqdm=True):
     """
-    Train simple neural networks
-
-    Parameters:
-    model (nn.Module): The PyTorch model / "Module" to train.
-    loss_func (callable): The loss function that takes in batch in two arguments, the model outputs and the labels, and returns a score.
-    train_loader (DataLoader): PyTorch DataLoader object that returns tuples of (input, label) pairs.
-    val_loader (DataLoader, optional): Optional PyTorch DataLoader to evaluate on after every epoch.
-    test_loader (DataLoader, optional): Optional PyTorch DataLoader to evaluate on after every epoch.
-    score_funcs (dict, optional): A dictionary of scoring functions to use to evaluate the performance of the model.
-    epochs (int, optional): The number of training epochs to perform (additional epochs if resuming training). Default is 50.
-    device (str, optional): The compute location to perform training. Default is "cpu".
-    checkpoint_file (str, optional): The file path to save the model checkpoint.
-    lr_schedule (torch.optim.lr_scheduler._LRScheduler, optional): The learning rate schedule used to alter the learning rate as the model trains. If this is not None, the user must also provide the optimizer to use.
-    optimizer (torch.optim.Optimizer, optional): The method used to alter the gradients for learning.
-    disable_tqdm (bool, optional): Whether to disable the tqdm progress bar. Default is False.
-    resume_file (str, optional): The file path to the checkpoint file to resume training from. Default is None.
-    resume_checkpoint (bool, optional): Whether to resume training from a checkpoint file. Default is False.
-
-    Returns:
-    DataFrame: A pandas DataFrame containing the training results.
-
-    """
-    if score_funcs is None:
-        score_funcs = {}  # Empty dictionary
-
-    to_track = ["epoch", "total time", "train loss"]
-    if val_loader is not None:
-        to_track.append("val loss")
-    if test_loader is not None:
-        to_track.append("test loss")
-    for eval_score in score_funcs:
-        to_track.append("train " + eval_score)
-        if val_loader is not None:
-            to_track.append("val " + eval_score)
-        if test_loader is not None:
-            to_track.append("test " + eval_score)
-    if lr_schedule is not None:
-        to_track.append("lr")
-
-    total_train_time = 0  # How long have we spent in the training loop?
-    start_epoch = 0
-    results = {}
-    # Initialize every item with an empty list
-    for item in to_track:
-        results[item] = []
-
-    # restore the model and optimizer state from the resume file if present
-    if resume_checkpoint and resume_file is None and checkpoint_file is not None and os.path.exists(checkpoint_file):
-        resume_file = checkpoint_file
-
-    if resume_file is not None:
-        checkpoint = torch.load(resume_file)
-        model.load_state_dict(checkpoint['model_state_dict'])
-
-        # Move model to the correct device
-        model.to(device)
-
-        # Now, update the optimizer's param groups with the model's parameters
-        if optimizer is not None:
-            # Reassign optimizer's parameter groups to match the model's current parameters
-            optimizer.param_groups[0]['params'] = list(model.parameters())
-
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        results = checkpoint['results']
-        start_epoch = checkpoint['epoch'] + 1
-        total_train_time = results["total time"][-1]
-
-        if lr_schedule is not None and 'lr_scheduler_state_dict' in checkpoint:
-            lr_dict = checkpoint['lr_scheduler_state_dict']
-            #lr_dict['last_epoch'] = start_epoch
-            lr_schedule.load_state_dict(lr_dict)
-
-    if optimizer is None:
-        # The AdamW optimizer is a good default optimizer
-        optimizer = torch.optim.AdamW(model.parameters())
-        del_opt = True
-    else:
-        del_opt = False
-
-    # Place the model on the correct compute resource (CPU or GPU)
-    model.to(device)
-    for epoch in tqdm(range(start_epoch, start_epoch + epochs), desc="Epoch", disable=disable_tqdm):
-
-        model = model.train()  # Put our model in training mode
-
-        total_train_time += run_epoch(model, optimizer, train_loader, loss_func, device, results, score_funcs, prefix="train", desc="Training")
-
-        results["epoch"].append(epoch)
-        results["total time"].append(total_train_time)
-
-        if val_loader is not None:
-            model = model.eval()  # Set the model to "evaluation" mode, because we don't want to make any updates!
-            with torch.no_grad():
-                run_epoch(model, optimizer, val_loader, loss_func, device, results, score_funcs, prefix="val", desc="Validating")
-
-        # In PyTorch, the convention is to update the learning rate after every epoch
-        if lr_schedule is not None:
-            results["lr"].append(optimizer.param_groups[0]['lr'])
-            if isinstance(lr_schedule, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                lr_schedule.step(results["val loss"][-1])
-            elif _scheduler_accepts_epoch(lr_schedule):
-                lr_schedule.step(epoch = epoch)
-            else:
-                lr_schedule.step()
-
-        if test_loader is not None:
-            model = model.eval()  # Set the model to "evaluation" mode, because we don't want to make any updates!
-            with torch.no_grad():
-                run_epoch(model, optimizer, test_loader, loss_func, device, results, score_funcs, prefix="test", desc="Testing")
-
-        if checkpoint_file is not None:
-            checkpoint_dir = os.path.dirname(checkpoint_file)
-            if not os.path.exists(checkpoint_dir):
-                os.makedirs(checkpoint_dir)
-            save_dict = {
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'results': results
-            }
-            if lr_schedule is not None:
-                save_dict['lr_schedule'] = lr_schedule.state_dict()
-            torch.save(save_dict, checkpoint_file)
-
-    if del_opt:
-        del optimizer
-
-    return pd.DataFrame.from_dict(results)
-
-
-def train_network2(model, loss_func, train_loader, val_loader=None, test_loader=None, score_funcs=None, 
-                  epochs=50, device="cpu", checkpoint_file=None, lr_schedule=None, optimizer=None, 
-                  disable_tqdm=False, resume_file=None, resume_checkpoint=False, early_stop=False, patience=4):
-    """
-    Train simple neural networks
-
-    Parameters:
-    model (nn.Module): The PyTorch model / "Module" to train.
-    loss_func (callable): The loss function that takes in batch in two arguments, the model outputs and the labels, and returns a score.
-    train_loader (DataLoader): PyTorch DataLoader object that returns tuples of (input, label) pairs.
-    val_loader (DataLoader, optional): Optional PyTorch DataLoader to evaluate on after every epoch.
-    test_loader (DataLoader, optional): Optional PyTorch DataLoader to evaluate on after every epoch.
-    score_funcs (dict, optional): A dictionary of scoring functions to use to evaluate the performance of the model.
-    epochs (int, optional): The number of training epochs to perform (additional epochs if resuming training). Default is 50.
-    device (str, optional): The compute location to perform training. Default is "cpu".
-    checkpoint_file (str, optional): The file path to save the model checkpoint.
-    lr_schedule (torch.optim.lr_scheduler._LRScheduler, optional): The learning rate schedule used to alter the learning rate as the model trains. If this is not None, the user must also provide the optimizer to use.
-    optimizer (torch.optim.Optimizer, optional): The method used to alter the gradients for learning.
-    disable_tqdm (bool, optional): Whether to disable the tqdm progress bar. Default is False.
-    resume_file (str, optional): The file path to the checkpoint file to resume training from. Default is None.
-    resume_checkpoint (bool, optional): Whether to resume training from a checkpoint file. Default is False.
-    early_stop (bool, optional): Whether to use early stopping. Default is False.
-    patience (int, optional): The number of epochs to wait for improvement before stopping. Default is 4.
-
-    Returns:
-    DataFrame: A pandas DataFrame containing the training results.
-
-    """
-    if score_funcs is None:
-        score_funcs = {}  # Empty dictionary
-
-    to_track = ["epoch", "total time", "train loss"]
-    if val_loader is not None:
-        to_track.append("val loss")
-    if test_loader is not None:
-        to_track.append("test loss")
-    for eval_score in score_funcs:
-        to_track.append("train " + eval_score)
-        if val_loader is not None:
-            to_track.append("val " + eval_score)
-        if test_loader is not None:
-            to_track.append("test " + eval_score)
-    if lr_schedule is not None:
-        to_track.append("lr")
-
-    total_train_time = 0  # How long have we spent in the training loop?
-    start_epoch = 0
-    results = {}
-    # Initialize every item with an empty list
-    for item in to_track:
-        results[item] = []
-
-    # restore the model and optimizer state from the resume file if present
-    if resume_checkpoint and resume_file is None and checkpoint_file is not None and os.path.exists(checkpoint_file):
-        resume_file = checkpoint_file
-
-    if resume_file is not None:
-        checkpoint = torch.load(resume_file)
-        model.load_state_dict(checkpoint['model_state_dict'])
-
-        # Move model to the correct device
-        model.to(device)
-
-        # Now, update the optimizer's param groups with the model's parameters
-        if optimizer is not None:
-            # Reassign optimizer's parameter groups to match the model's current parameters
-            optimizer.param_groups[0]['params'] = list(model.parameters())
-
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        results = checkpoint['results']
-        start_epoch = checkpoint['epoch'] + 1
-        total_train_time = results["total time"][-1]
-
-        if lr_schedule is not None and 'lr_scheduler_state_dict' in checkpoint:
-            lr_dict = checkpoint['lr_scheduler_state_dict']
-            #lr_dict['last_epoch'] = start_epoch
-            lr_schedule.load_state_dict(lr_dict)
-
-    if optimizer is None:
-        # The AdamW optimizer is a good default optimizer
-        optimizer = torch.optim.AdamW(model.parameters())
-        del_opt = True
-    else:
-        del_opt = False
-
-    # Place the model on the correct compute resource (CPU or GPU)
-    model.to(device)
-    best_loss = float('inf')
-    no_improvement = 0
-    for epoch in tqdm(range(start_epoch, start_epoch + epochs), desc="Epoch", disable=disable_tqdm):
-
-        model = model.train()  # Put our model in training mode
-
-        total_train_time += run_epoch(model, optimizer, train_loader, loss_func, device, results, score_funcs, prefix="train", desc="Training")
-
-        results["epoch"].append(epoch)
-        results["total time"].append(total_train_time)
-
-        if val_loader is not None:
-            model = model.eval()  # Set the model to "evaluation" mode, because we don't want to make any updates!
-            with torch.no_grad():
-                run_epoch(model, optimizer, val_loader, loss_func, device, results, score_funcs, prefix="val", desc="Validating")
-
-                if early_stop:
-                    val_loss = results["val loss"][-1]
-                    if val_loss < best_loss:
-                        best_loss = val_loss
-                        no_improvement = 0
-                        if checkpoint_file is not None:
-                            save_dict = {
-                                'epoch': epoch,
-                                'model_state_dict': model.state_dict(),
-                                'optimizer_state_dict': optimizer.state_dict(),
-                                'results': results
-                            }
-                            if lr_schedule is not None:
-                                save_dict['lr_schedule'] = lr_schedule.state_dict()
-                            torch.save(save_dict, checkpoint_file)
-                    else:
-                        no_improvement += 1
-                        if no_improvement >= patience:
-                            break
-
-        # In PyTorch, the convention is to update the learning rate after every epoch
-        if lr_schedule is not None:
-            results["lr"].append(optimizer.param_groups[0]['lr'])
-            if isinstance(lr_schedule, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                lr_schedule.step(results["val loss"][-1])
-            elif _scheduler_accepts_epoch(lr_schedule):
-                lr_schedule.step(epoch = epoch)
-            else:
-                lr_schedule.step()
-
-        if test_loader is not None:
-            model = model.eval()  # Set the model to "evaluation" mode, because we don't want to make any updates!
-            with torch.no_grad():
-                run_epoch(model, optimizer, test_loader, loss_func, device, results, score_funcs, prefix="test", desc="Testing")
-
-        if checkpoint_file is not None and not early_stop:
-            save_dict = {
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'results': results
-            }
-            if lr_schedule is not None:
-                save_dict['lr_schedule'] = lr_schedule.state_dict()
-            torch.save(save_dict, checkpoint_file)
-
-    if del_opt:
-        del optimizer
-
-    return pd.DataFrame.from_dict(results)
-
-
-def train_network2(model, loss_func, train_loader, val_loader=None, test_loader=None, score_funcs=None, 
-                  epochs=50, device="cpu", checkpoint_file=None, lr_schedule=None, optimizer=None, 
-                  disable_tqdm=False, resume_file=None, resume_checkpoint=False, 
-                  early_stop_metric=None, early_stop_crit="min", patience=4):
-    """
-    Train simple neural networks.
+    Trains a simple neural network model using the specified loss function and data loaders.
 
     Args:
         model (torch.nn.Module): The neural network model to train.
-        loss_func (callable): The loss function to optimize during training.
+        loss_func (torch.nn.Module): The loss function to optimize during training.
         train_loader (torch.utils.data.DataLoader): The data loader for the training dataset.
-        val_loader (torch.utils.data.DataLoader, optional): The data loader for the validation dataset. Default is None.
-        test_loader (torch.utils.data.DataLoader, optional): The data loader for the testing dataset. Default is None.
-        score_funcs (dict, optional): A dictionary of additional evaluation metrics to track during training. 
-            The keys are the names of the metrics and the values are callable functions that compute the metrics. 
-            Default is None.
-        epochs (int, optional): The number of training epochs. Default is 50.
-        device (str, optional): The device to use for training. Default is "cpu".
-        checkpoint_file (str, optional): The file path to save the model checkpoints. Default is None.
-        lr_schedule (torch.optim.lr_scheduler._LRScheduler, optional): The learning rate scheduler. 
-            Default is None.
-        optimizer (torch.optim.Optimizer, optional): The optimizer to use for training. 
-            If None, AdamW optimizer will be used. Default is None.
-        disable_tqdm (bool, optional): Whether to disable the tqdm progress bar. Default is False.
-        resume_file (str, optional): The file path to resume training from a checkpoint. Default is None.
-        resume_checkpoint (bool, optional): Whether to resume training from the provided checkpoint file. 
-            If True, the checkpoint_file parameter will be used as the resume_file. Default is False.
-        early_stop_metric (str, optional): The evaluation metric to use for early stopping. 
-            If provided, training will stop if the metric does not improve for a certain number of epochs. 
-            Default is None.  Must provide val_loader if using early stopping.
-        early_stop_crit (str, optional): The criterion for early stopping. 
-            Must be either "min" or "max". Default is "min".
-        patience (int, optional): The number of epochs to wait for improvement in the early stop metric 
-            before stopping training. Default is 4.
+        test_loader (torch.utils.data.DataLoader, optional): The data loader for the testing dataset. Defaults to None.
+        score_funcs (list, optional): List of evaluation score functions to track during training. Defaults to None.
+        epochs (int, optional): The number of training epochs. Defaults to 50.
+        device (str, optional): The device to use for training (e.g., "cpu" or "cuda"). Defaults to "cpu".
+        checkpoint_file (str, optional): The file path to save the model checkpoint. Defaults to None.
+        lr (float, optional): The learning rate for the optimizer. Defaults to 0.001.
+        use_tqdm (bool, optional): Whether to display a progress bar during training. Defaults to True.
 
     Returns:
-        pandas.DataFrame: A DataFrame containing the training results, including the loss and evaluation metrics 
-        for each epoch.
+        pandas.DataFrame: A DataFrame containing the training and test results for each epoch.
+    
+    Pseudo-code:
+        # Initialize optimizer
+        optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+        
+        # For each epoch:
+        for epoch in range(epochs):
+            # Set model to training mode
+            model.train()
+            # Train on train_loader, compute train loss and any other metrics in score_funcs
+            
+            if test_loader:
+                # Set model to evaluation mode
+                model.eval()
+                # Evaluate on test_loader, compute test loss and metrics in score_funcs
+            
+            # (Optional) Save checkpoint if checkpoint_file is specified
+            
+        # Return a DataFrame with results from each epoch
 
-    Raises:
-        ValueError: If the early_stop_metric is not "loss" and not one of the provided score functions.
-        ValueError: If the early_stop_crit is not "min" or "max".
-
+    Example checkpoint logic:
+        if checkpoint_file is specified:
+            Save model state, optimizer state, and training results to the checkpoint file after each epoch.
     """
-    if score_funcs is None:
-        score_funcs = {}
+    
+    # Set the optimizer
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr)
 
-    if early_stop_metric and val_loader is None:
-         raise ValueError("Validation loader is required for early stopping.")
-
-    # Validate early stopping metric if specified
-    if early_stop_metric and early_stop_metric != "loss" and early_stop_metric not in score_funcs:
-        raise ValueError(f"Early stop metric '{early_stop_metric}' must be 'loss' or one of the provided score functions.")
-
-    # Set the optimization function based on early_stop_crit
-    if early_stop_crit not in ["min", "max"]:
-        raise ValueError("early_stop_crit should be 'min' or 'max'")
-    early_stop_op = min if early_stop_crit == "min" else max
-
+    # Define a dictionary for tracking results
     to_track = ["epoch", "total time", "train loss"]
-    if val_loader is not None:
-        to_track.append("val loss")
     if test_loader is not None:
         to_track.append("test loss")
-    for eval_score in score_funcs:
-        to_track.append("train " + eval_score)
-        if val_loader is not None:
-            to_track.append("val " + eval_score)
-        if test_loader is not None:
-            to_track.append("test " + eval_score)
-    if lr_schedule is not None:
-        to_track.append("lr")
-
-    total_train_time = 0  # How long have we spent in the training loop?
-    start_epoch = 0
-    results = {}
-    for item in to_track:
-        results[item] = []
-
-    if resume_checkpoint and resume_file is None and checkpoint_file is not None and os.path.exists(checkpoint_file):
-        resume_file = checkpoint_file
-
-    if resume_file is not None:
-        checkpoint = torch.load(resume_file)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        model.to(device)
-
-        if optimizer is not None:
-            optimizer.param_groups[0]['params'] = list(model.parameters())
-
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        results = checkpoint['results']
-        start_epoch = checkpoint['epoch'] + 1
-        total_train_time = results["total time"][-1]
-
-        if lr_schedule is not None and 'lr_scheduler_state_dict' in checkpoint:
-            lr_dict = checkpoint['lr_scheduler_state_dict']
-            lr_schedule.load_state_dict(lr_dict)
-
-    if optimizer is None:
-        optimizer = torch.optim.AdamW(model.parameters())
-        del_opt = True
-    else:
-        del_opt = False
-
-    model.to(device)
-    best_metric = float('inf') if early_stop_crit == "min" else -float('inf')
-    no_improvement = 0
-    for epoch in tqdm(range(start_epoch, start_epoch + epochs), desc="Epoch", disable=disable_tqdm):
-        model = model.train()
-        total_train_time += run_epoch(model, optimizer, train_loader, loss_func, device, results, score_funcs, prefix="train", desc="Training")
-        results["epoch"].append(epoch)
-        results["total time"].append(total_train_time)
-
-        if val_loader is not None:
-            model = model.eval()
-            with torch.no_grad():
-                val_loss = run_epoch(model, optimizer, val_loader, loss_func, device, results, score_funcs, prefix="val", desc="Validating")
-
-
-                # Early stopping with the specified metric if provided
-                if early_stop_metric:
-                    monitor_value = results[f"val {early_stop_metric}"][-1] if early_stop_metric != "loss" else val_loss
-                    if early_stop_op(monitor_value, best_metric) == monitor_value:
-                        best_metric = monitor_value
-                        no_improvement = 0
-                        if checkpoint_file is not None:
-                            save_dict = {
-                                'epoch': epoch,
-                                'model_state_dict': model.state_dict(),
-                                'optimizer_state_dict': optimizer.state_dict(),
-                                'results': results
-                            }
-                            if lr_schedule is not None:
-                                save_dict['lr_schedule'] = lr_schedule.state_dict()
-                            torch.save(save_dict, checkpoint_file)
-                    else:
-                        no_improvement += 1
-                        if no_improvement >= patience:
-                            print(f"Early stopping at epoch {epoch}")
-                            break
-
-        if lr_schedule is not None:
-            results["lr"].append(optimizer.param_groups[0]['lr'])
-            if isinstance(lr_schedule, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                lr_schedule.step(results["val loss"][-1])
-            elif _scheduler_accepts_epoch(lr_schedule):
-                lr_schedule.step(epoch = epoch)
-            else:
-                lr_schedule.step()
-
-        if test_loader is not None:
-            model = model.eval()
-            with torch.no_grad():
-                run_epoch(model, optimizer, test_loader, loss_func, device, results, score_funcs, prefix="test", desc="Testing")
-
-        if checkpoint_file is not None and early_stop_metric is None:
-            save_dict = {
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'results': results
-            }
-            if lr_schedule is not None:
-                save_dict['lr_schedule'] = lr_schedule.state_dict()
-            torch.save(save_dict, checkpoint_file)
-
-    if del_opt:
-        del optimizer
-
-    return pd.DataFrame.from_dict(results)
-'''
-
+    if score_funcs is not None:
+        for eval_score in score_funcs:
+            to_track.append("train " + eval_score)
+            if test_loader is not None:
+                to_track.append("test " + eval_score)
+    
+    # Call the `train_network` function with specified parameters, omitting default values
+    results_df = train_network(
+        model,
+        loss_func,
+        train_loader,
+        test_loader=test_loader,           # Optional test loader
+        score_funcs=score_funcs,           # Optional scoring functions
+        epochs=epochs,
+        device=device,
+        checkpoint_file=checkpoint_file,
+        optimizer=optimizer,
+        disable_tqdm=not use_tqdm
+    )
+    
+    return results_df
+        
 def load_checkpoint(model, optimizer, lr_schedule, resume_file, device):
     """Load model, optimizer, scheduler, and results from a checkpoint file."""
     checkpoint = torch.load(resume_file)
@@ -884,11 +434,20 @@ def train_network(model, loss_func, train_loader, val_loader=None, test_loader=N
         if checkpoint_file and early_stop_metric is None:
             save_checkpoint(epoch, model, optimizer, results, checkpoint_file, lr_schedule)
 
+        if disable_tqdm:
+            # Clear the previous output
+            clear_output(wait=True)
+            
+            # Display the current epoch
+            print(f"Completed Epoch: {epoch + 1}/{epochs}")
+            
+            # Display the last 5 rows of the results DataFrame
+            display(pd.DataFrame(results).tail(5))
+
     if del_opt:
         del optimizer
 
     return pd.DataFrame.from_dict(results)
-
 
 def _scheduler_accepts_epoch(scheduler):
     """
@@ -972,26 +531,67 @@ def test_network(model, loss_func, test_loader, score_funcs, device):
 
     return df_results, df_preds
 
+def set_seed(seed):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
 
-def check_and_install_packages(packages):
-    """
-    Check if the given packages are installed, and if not, install them.
+class Flatten(nn.Module):
+    def forward(self, input):
+        return input.view(input.size(0), -1)
     
-    :param packages: List of package names to check and install if necessary.
-    """
-    environment = detect_jupyter_environment()
+class View(nn.Module):
+    def __init__(self, *shape):
+        super(View, self).__init__()
+        self.shape = shape
+    def forward(self, input):
+        return input.view(*self.shape) 
     
-    for package_name in packages:
-        try:
-            importlib.import_module(package_name)
-            print(f"'{package_name}' is already installed.")
-        except ImportError:
-            print(f"'{package_name}' is not installed. Installing now...")
-            if environment == "cocalc":
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "--user", package_name])
-            else:
-                subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
-            print(f"'{package_name}' has been installed.")
+class LambdaLayer(nn.Module):
+    def __init__(self, lambd):
+        super(LambdaLayer, self).__init__()
+        self.lambd = lambd
+        
+    def forward(self, x):
+        return self.lambd(x)
+    
+class DebugShape(nn.Module):
+    """
+    Module that is useful to help debug your neural network architecture. 
+    Insert this module between layers and it will print out the shape of 
+    that layer. 
+    """
+    def forward(self, input):
+        print(input.shape)
+        return input
+    
+def weight_reset(m):
+    """
+    Go through a PyTorch module m and reset all the weights to an initial random state
+    """
+    if "reset_parameters" in dir(m):
+        m.reset_parameters()
+    return
+
+def moveTo(obj, device):
+    """
+    obj: the python object to move to a device, or to move its contents to a device
+    device: the compute device to move objects to
+    """
+    if hasattr(obj, "to"):
+        return obj.to(device)
+    elif isinstance(obj, list):
+        return [moveTo(x, device) for x in obj]
+    elif isinstance(obj, tuple):
+        return tuple(moveTo(list(obj), device))
+    elif isinstance(obj, set):
+        return set(moveTo(list(obj), device))
+    elif isinstance(obj, dict):
+        to_ret = dict()
+        for key, value in obj.items():
+            to_ret[moveTo(key, device)] = moveTo(value, device)
+        return to_ret
+    else:
+        return obj
 
 ###########################################################
 # RNN utility Classes 

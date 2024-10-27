@@ -119,87 +119,6 @@ def run_epoch(model, optimizer, data_loader, loss_func, device, results, score_f
     
     return end - start  # Return time spent on epoch
 
-
-'''
-def train_simple_network(model, loss_func, train_loader, test_loader=None, score_funcs=None, 
-                         epochs=50, device="cpu", checkpoint_file=None, lr=0.001, use_tqdm=True):
-    """
-    Trains a simple neural network model using the specified loss function and data loaders.
-
-    Args:
-        model (torch.nn.Module): The neural network model to train.
-        loss_func (torch.nn.Module): The loss function to optimize during training.
-        train_loader (torch.utils.data.DataLoader): The data loader for the training dataset.
-        test_loader (torch.utils.data.DataLoader, optional): The data loader for the testing dataset. Defaults to None.
-        score_funcs (list, optional): List of evaluation score functions to track during training. Defaults to None.
-        epochs (int, optional): The number of training epochs. Defaults to 50.
-        device (str, optional): The device to use for training (e.g., "cpu" or "cuda"). Defaults to "cpu".
-        checkpoint_file (str, optional): The file path to save the model checkpoint. Defaults to None.
-        lr (float, optional): The learning rate for the optimizer. Defaults to 0.001.
-        use_tqdm (bool, optional): Whether to display a progress bar during training. Defaults to True.
-
-    Returns:
-        pandas.DataFrame: A DataFrame containing the training and testing results for each epoch.
-    """
-    
-    to_track = ["epoch", "total time", "train loss"]
-    if test_loader is not None:
-        to_track.append("test loss")
-
-    if score_funcs is not None:
-        for eval_score in score_funcs:
-            to_track.append("train " + eval_score )
-            if test_loader is not None:
-                to_track.append("test " + eval_score )
-        
-    total_train_time = 0 #How long have we spent in the training loop? 
-    results = {}
-    #Initialize every item with an empty list
-    for item in to_track:
-        results[item] = []
-        
-    #SGD is Stochastic Gradient Decent.
-    optimizer = torch.optim.SGD(model.parameters(), lr=lr)
-    #Place the model on the correct compute resource (CPU or GPU)
-    model.to(device)
-    for epoch in tqdm(range(epochs), desc="Epoch", disable=not use_tqdm):
-        model = model.train()#Put our model in training mode
-        
-        total_train_time += run_epoch(model, optimizer, train_loader, loss_func, device, results, score_funcs, prefix="train", desc="Training", use_tqdm = False)
-
-        results["total time"].append( total_train_time )
-        results["epoch"].append( epoch )
-        
-        if test_loader is not None:
-            model = model.eval()
-            with torch.no_grad():
-                run_epoch(model, optimizer, test_loader, loss_func, device, results, score_funcs, prefix="test", desc="Testing", use_tqdm = False)
-        
-        if not use_tqdm:
-            # Clear the previous output
-            clear_output(wait=True)
-            
-            # Display the current epoch
-            print(f"Completed Epoch: {epoch + 1}/{epochs}")
-            
-            # Display the last 5 rows of the results DataFrame
-            display(pd.DataFrame(results).tail(5))
-                    
-    if checkpoint_file is not None:
-        # Check if the directory exists, create it if not
-        checkpoint_dir = os.path.dirname(checkpoint_file)
-        if not os.path.exists(checkpoint_dir):
-            os.makedirs(checkpoint_dir)
-        torch.save({
-            'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'results' : results
-            }, checkpoint_file)
-
-    return pd.DataFrame.from_dict(results)
-'''
-
 def train_simple_network(model, loss_func, train_loader, test_loader=None, score_funcs=None, 
                          epochs=50, device="cpu", checkpoint_file=None, lr=0.001, use_tqdm=True):
     """
@@ -315,8 +234,13 @@ def train_network(model, loss_func, train_loader, val_loader=None, test_loader=N
         model (torch.nn.Module): The neural network model to train.
         loss_func (callable): The loss function to optimize during training.
         train_loader (torch.utils.data.DataLoader): The data loader for the training dataset.
-        val_loader (torch.utils.data.DataLoader, optional): The data loader for the validation dataset. Default is None.
-        test_loader (torch.utils.data.DataLoader, optional): The data loader for the testing dataset. Default is None.
+        val_loader (torch.utils.data.DataLoader, optional): Data loader for the validation dataset.
+            Typically used to monitor performance during training and guide early stopping.
+            If early stopping is enabled, performance on this set will dictate when training stops.
+        test_loader (torch.utils.data.DataLoader, optional): Data loader for the test dataset.
+            In most cases, the test set is reserved for final evaluation after training completes.
+            However, in specific scenarios (e.g., incremental learning, research experiments),
+            it may be used during training to monitor generalization performance.
         score_funcs (dict, optional): A dictionary of additional evaluation metrics to track during training. 
             The keys are the names of the metrics and the values are callable functions that compute the metrics. 
             Default is None.
