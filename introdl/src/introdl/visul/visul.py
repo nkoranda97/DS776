@@ -16,53 +16,96 @@ from matplotlib.colors import Normalize, TwoSlopeNorm
 from matplotlib.pyplot import get_cmap
 import matplotlib.gridspec as gridspec
 from scipy.special import erf
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageDraw, ImageFont
 import torchvision.transforms as transforms
+
 
 ########################################################
 # Visualization Related Functions
 ########################################################
 
-def show_image_grid_old(nrows, ncols, dataset, mean=None, std=None, cmap='Greys'):
+def in_notebook():
     """
-    Display a grid of images from a PyTorch dataset.
+    Check if the code is running in a Jupyter notebook environment.
+
+    Returns:
+        bool: True if running in a Jupyter notebook, False otherwise.
+    """
+    try:
+        shell = get_ipython().__class__.__name__
+        return shell == 'ZMQInteractiveShell'  # Indicates Jupyter notebook or JupyterLab
+    except NameError:
+        return False  # Not in a notebook environment
+
+def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label_height=12, class_labels=None, indices=None, show_label=False, dark_mode=False):
+    """
+    Creates a grid of images from a given dataset.
 
     Args:
-        nrows (int): Number of rows in the grid.
-        ncols (int): Number of columns in the grid.
-        dataset (Dataset): PyTorch dataset containing images.
-        mean (list or tuple, optional): Mean for denormalization.
-        std (list or tuple, optional): Standard deviation for denormalization.
-        cmap (str, optional): Colormap for 1-channel images. Default is 'Greys'.
+        dataset (torch.utils.data.Dataset): The dataset containing the images and labels.
+        nrows (int): The number of rows in the grid.
+        ncols (int): The number of columns in the grid.
+        img_size (tuple, optional): The size of each image in the grid. Defaults to (64, 64).
+        padding (int, optional): The padding between images in the grid. Defaults to 2.
+        label_height (int, optional): The height of the label area below each image. Defaults to 12.
+        class_labels (list, optional): The list of class labels. If None, the dataset's classes will be used. Defaults to None.
+        indices (numpy.ndarray, optional): The indices of the images to include in the grid. If None, random indices will be chosen. Defaults to None.
+        show_label (bool, optional): Whether to show the label below each image. Defaults to False.
+        dark_mode (bool, optional): Whether to use a dark mode background. Defaults to False.
+
+    Returns:
+        None
     """
-    # Randomly select nrows * ncols images
-    indices = torch.randint(0, len(dataset), (nrows * ncols,))
-    images = torch.stack([dataset[i][0] for i in indices])
+    if class_labels is None and hasattr(dataset, 'classes'):
+        class_labels = dataset.classes
 
-    # Denormalize images if mean and std are provided
-    if mean is not None and std is not None:
-        images = torch.stack([denormalize_image(img, mean, std) for img in images])
+    # Calculate canvas size
+    img_width, img_height = img_size
+    canvas_width = ncols * img_width + (ncols - 1) * padding
+    canvas_height = nrows * (img_height + (label_height if show_label else 0)) + (nrows - 1) * padding
 
-    # Make a grid of images
-    grid = vutils.make_grid(images, nrow=ncols, padding=2)
+    # Create blank canvas with white or black background
+    bg_color = (0, 0, 0) if dark_mode else (255, 255, 255)
+    canvas = Image.new("RGB", (canvas_width, canvas_height), bg_color)
+    draw = ImageDraw.Draw(canvas)
 
-    # Check if images are 1-channel and extract the first channel only
-    if grid.shape[0] == 1 or grid.shape[0] == 3 and torch.all(grid[0] == grid[1]) and torch.all(grid[0] == grid[2]):
-        # If grid has 3 channels but all are the same, convert to 1-channel
-        grid = grid[0].unsqueeze(0)
+    # Default font for labels
+    try:
+        font = ImageFont.truetype("arial.ttf", 14)
+    except IOError:
+        font = ImageFont.load_default()
+    
+    if indices is None:
+        indices = np.random.choice(len(dataset), nrows * ncols, replace=False)
+    
+    # Place each image and label on the canvas
+    for idx, data_idx in enumerate(indices):
+        image, label = dataset[data_idx]
 
-    # Convert the tensor to a numpy array for display
-    npimg = grid.numpy()
+        if isinstance(image, torch.Tensor):
+            image = Image.fromarray((image.permute(1, 2, 0).numpy() * 255).astype(np.uint8))
 
-    # Display the grid of images
-    plt.figure(figsize=(ncols, nrows))
-    # Check if the image is 1-channel or 3-channel
-    if npimg.shape[0] == 1:  # 1-channel (grayscale)
-        plt.imshow(npimg[0], cmap=cmap)
-    else:  # 3-channel (RGB or other multi-channel)
-        plt.imshow(np.transpose(npimg, (1, 2, 0)))
-    plt.axis('off')
-    plt.show()
+        image = image.resize(img_size, Image.Resampling.LANCZOS)
+        
+        row, col = divmod(idx, ncols)
+        x = col * (img_width + padding)
+        y = row * (img_height + (label_height if show_label else 0) + padding)
+        
+        canvas.paste(image, (x, y + (label_height if show_label else 0)))
+        
+        if show_label:
+            label_text = class_labels[label] if class_labels else f'Label: {label}'
+            text_color = (255, 255, 255) if dark_mode else (0, 0, 0)
+            text_x = x + img_width // 2
+            text_y = y + label_height // 2
+            draw.text((text_x, text_y), label_text, fill=text_color, font=font, anchor="mm")
+
+    # Display the final grid image
+    if in_notebook():
+        display(canvas)  # Display inline in Jupyter notebook
+    else:
+        canvas.show()  # Open in a separate window if not in a notebook
+
 
 def show_image_grid(nrows, ncols, dataset, class_labels=None, indices=None, show_label=False, fig_scale=2, dark_mode=False, show_preds=False, preds=None, cmap='Greys'):
     """
