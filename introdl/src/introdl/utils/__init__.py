@@ -3,11 +3,13 @@ from .utils import get_device
 from .utils import load_results
 from .utils import load_model
 from .utils import summarizer
+from .utils import create_CIFAR10_loaders
 
 __all__ = [
     "detect_jupyter_environment",
     "get_device",
     "load_results",
     "load_model",
-    "summarizer"
+    "summarizer",
+    "create_CIFAR10_loaders"
 ]
