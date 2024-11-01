@@ -1,5 +1,5 @@
 from .visul import show_image_grid
-from .visul import show_image_grid_old
+from .visul import create_image_grid
 from .visul import visualize2DSoftmax
 from .visul import vis_feature_maps
 from .visul import vis_feature_maps_widget
@@ -11,7 +11,7 @@ from .visul import plot_activation_functions
 
 __all__ = [
     "show_image_grid",
-    "show_image_grid_old",
+    "create_image_grid",
     "visualize2DSoftmax",
     "vis_feature_maps",
     "vis_feature_maps_widget",
