@@ -47,84 +47,6 @@ def visualize2DSoftmax(X, y, model, title=None):
 ###########################################################
 
 '''
-def run_epoch(model, optimizer, data_loader, loss_func, device, results, score_funcs, prefix="", desc=None, use_tqdm=True, grad_clip=None):
-    """
-    Run one epoch of training or evaluation.
-
-    Parameters:
-        model (torch.nn.Module): The PyTorch model to run for one epoch.
-        optimizer (torch.optim.Optimizer): The optimizer object that will update the weights of the network.
-        data_loader (torch.utils.data.DataLoader): The DataLoader object that returns tuples of (input, label) pairs.
-        loss_func (callable): The loss function that takes in two arguments, the model outputs and the labels, and returns a score.
-        device (torch.device): The compute location to perform training.
-        results (dict): A dictionary to store the results of the epoch.
-        score_funcs (dict): A dictionary of scoring functions to use to evaluate the performance of the model.
-        prefix (str, optional): A string to pre-fix to any scores placed into the results dictionary. Default is an empty string.
-        desc (str, optional): A description to use for the progress bar. Default is None.
-        use_tqdm (bool, optional): Whether to use tqdm for displaying the progress bar. Default is True.
-
-    Returns:
-        float: The time spent on the epoch.
-
-    """
-    running_loss = []
-    y_true = []
-    y_pred = []
-    start = time.time()
-    
-    # Loop over batches
-    for inputs, labels in tqdm(data_loader, desc=desc, leave=False, disable=not use_tqdm):
-        # Move the batch to the device we are using
-        inputs = moveTo(inputs, device)
-        labels = moveTo(labels, device)
-
-        # Forward pass
-        y_hat = model(inputs)
-        
-        # Compute loss
-        loss = loss_func(y_hat, labels)
-
-        if model.training:
-            loss.backward() # Compute gradients
-            
-            # Gradient clipping
-            if grad_clip: 
-                nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-
-            optimizer.step() # Update the weights
-            optimizer.zero_grad() # Zero the gradients
-
-        # Store loss
-        running_loss.append(loss.item())
-
-        if score_funcs is not None and len(score_funcs) > 0 and isinstance(labels, torch.Tensor):
-            # Move labels & predictions back to CPU for computing / storing predictions
-            labels = labels.detach().cpu().numpy()
-            y_hat = y_hat.detach().cpu().numpy()
-            
-            # Store true and predicted values for scoring
-            y_true.extend(labels.tolist())
-            y_pred.extend(y_hat.tolist())
-
-    # End training epoch
-    end = time.time()
-
-    # Convert predictions to labels (if classification problem)
-    y_pred = np.asarray(y_pred)
-    if len(y_pred.shape) == 2 and y_pred.shape[1] > 1:  # If classification, convert to labels
-        y_pred = np.argmax(y_pred, axis=1)
-    
-    # Record loss and scores
-    results[prefix + " loss"].append(np.mean(running_loss))
-    if score_funcs is not None:
-        for name, score_func in score_funcs.items():
-            try:
-                results[prefix + " " + name].append(score_func(y_true, y_pred))
-            except:
-                results[prefix + " " + name].append(float("NaN"))
-    
-    return end - start  # Return time spent on epoch
-'''
 def run_epoch(model, optimizer, data_loader, loss_func, device, results, score_funcs, prefix="", desc=None, use_tqdm=True, grad_clip=None, lr_schedule=None, scheduler_step_per_batch=False):
     """
     Run one epoch of training or evaluation.
@@ -208,7 +130,113 @@ def run_epoch(model, optimizer, data_loader, loss_func, device, results, score_f
                 results[prefix + " " + name].append(float("NaN"))
     
     return end - start  # Return time spent on epoch
+'''
 
+def run_epoch(model, optimizer, data_loader, loss_func, device, results, score_funcs, prefix="", desc=None, use_tqdm=True, grad_clip=None, lr_schedule=None, scheduler_step_per_batch=False, threshold=0.5):
+    """
+    Run one epoch of training or evaluation.
+
+    Parameters:
+        model (torch.nn.Module): The PyTorch model to run for one epoch.
+        optimizer (torch.optim.Optimizer): The optimizer object that will update the weights of the network.
+        data_loader (torch.utils.data.DataLoader): The DataLoader object that returns tuples of (input, label) pairs.
+        loss_func (callable): The loss function that takes in two arguments, the model outputs and the labels, and returns a score.
+        device (torch.device): The compute location to perform training.
+        results (dict): A dictionary to store the results of the epoch.
+        score_funcs (dict): A dictionary of scoring functions to use to evaluate the performance of the model.
+        prefix (str, optional): A string to pre-fix to any scores placed into the results dictionary. Default is an empty string.
+        desc (str, optional): A description to use for the progress bar. Default is None.
+        use_tqdm (bool, optional): Whether to use tqdm for displaying the progress bar. Default is True.
+        grad_clip (float, optional): Gradient clipping value. Default is None.
+        lr_schedule (torch.optim.lr_scheduler, optional): The learning rate scheduler. Default is None.
+        scheduler_step_per_batch (bool, optional): Whether to step the scheduler after every batch. Default is False.
+        threshold (float, optional): Threshold for binary classification or segmentation tasks.
+
+    Returns:
+        float: The time spent on the epoch.
+    """
+    running_loss = []
+    y_true = []
+    y_pred = []
+    start = time.time()
+    
+    # Determine if the task is regression based on the loss function
+    is_regression = isinstance(loss_func, (nn.MSELoss, nn.L1Loss, nn.SmoothL1Loss))
+    
+    # Loop over batches
+    for inputs, labels in tqdm(data_loader, desc=desc, leave=False, disable=not use_tqdm):
+        # Move the batch to the device we are using
+        inputs = moveTo(inputs, device)
+        labels = moveTo(labels, device)
+
+        # Forward pass
+        y_hat = model(inputs)
+        
+        # Compute loss
+        loss = loss_func(y_hat, labels)
+
+        if model.training:
+            loss.backward()  # Compute gradients
+            
+            # Gradient clipping
+            if grad_clip: 
+                nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+
+            optimizer.step()  # Update the weights
+            optimizer.zero_grad()  # Zero the gradients
+
+            # Step the learning rate scheduler per batch if specified
+            if lr_schedule is not None and scheduler_step_per_batch:
+                lr_schedule.step()
+        
+        # Store loss
+        running_loss.append(loss.item())
+
+        if score_funcs is not None and len(score_funcs) > 0 and isinstance(labels, torch.Tensor):
+            # Move labels & predictions back to CPU for processing and metric calculation
+            labels = labels.detach().cpu().numpy()
+            y_hat = y_hat.detach().cpu().numpy()
+            
+            # Process predictions based on detected task type
+            if not is_regression:
+                if len(y_hat.shape) == 2 and y_hat.shape[1] > 1:  # Multiclass classification
+                    y_hat = np.argmax(y_hat, axis=1)
+                    labels = labels.flatten()
+
+                elif len(y_hat.shape) == 2 and y_hat.shape[1] == 1:  # Binary classification
+                    y_hat = (y_hat > threshold).astype(int).flatten()
+                    labels = labels.flatten()
+
+                elif len(y_hat.shape) >= 3 and y_hat.shape[1] == 1:  # Binary segmentation
+                    y_hat = (y_hat > threshold).astype(int).flatten()  # Flatten for pixel-level comparison
+                    labels = labels.flatten()
+
+                elif len(y_hat.shape) >= 3 and y_hat.shape[1] > 1:  # Multiclass segmentation
+                    y_hat = np.argmax(y_hat, axis=1).flatten()  # Flatten for pixel-level comparison
+                    labels = labels.flatten()
+
+            # Store processed true and predicted values for scoring
+            y_true.extend(labels.tolist())
+            y_pred.extend(y_hat.tolist())
+
+    # End training epoch
+    end = time.time()
+
+    # Convert predictions to labels (if classification problem)
+    y_pred = np.asarray(y_pred)
+    
+    # Record loss and scores
+    results[prefix + " loss"].append(np.mean(running_loss))
+    if score_funcs is not None:
+        for name, score_func in score_funcs.items():
+            try:
+                results[prefix + " " + name].append(score_func(y_true, y_pred))
+            except:
+                results[prefix + " " + name].append(float("NaN"))
+    
+    return end - start  # Return time spent on epoch
+
+    
 def train_network(model, loss_func, train_loader, val_loader=None, test_loader=None, score_funcs=None, 
                   epochs=50, device="cpu", checkpoint_file=None, lr_schedule=None, optimizer=None, 
                   disable_tqdm=False, resume_file=None, resume_checkpoint=False, 

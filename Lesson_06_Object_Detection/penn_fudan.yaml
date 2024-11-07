@@ -1,0 +1,6 @@
+names:
+- pedestrian
+nc: 1
+path: /Users/jbaggett/Library/CloudStorage/GoogleDrive-baggett.jeff@gmail.com/My Drive/Python_Projects/DS776_Develop_Project/data/PennFudanPed
+train: train/images
+val: val/images
