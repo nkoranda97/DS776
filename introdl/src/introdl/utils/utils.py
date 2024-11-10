@@ -50,7 +50,7 @@ def load_results(ckpt_file, device=torch.device('cpu')):
     Returns:
     - results: The loaded results from the checkpoint file.
     """
-    checkpoint_dict = torch.load(ckpt_file, map_location=device) # moves tensors onto 'device'
+    checkpoint_dict = torch.load(ckpt_file, map_location=device, weights_only=False) # moves tensors onto 'device'
     return pd.DataFrame(checkpoint_dict['results'])
 
 def load_model(model, checkpoint_file, device=torch.device('cpu')):
@@ -70,7 +70,7 @@ def load_model(model, checkpoint_file, device=torch.device('cpu')):
     elif not isinstance(model, nn.Module):
         raise ValueError("The model must be a class or an instance of nn.Module.")
         
-    checkpoint_dict = torch.load(checkpoint_file)
+    checkpoint_dict = torch.load(checkpoint_file, weights_only=False)
     model.load_state_dict(checkpoint_dict['model_state_dict']) 
     return model.to(device)
 
