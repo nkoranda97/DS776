@@ -70,7 +70,7 @@ def load_model(model, checkpoint_file, device=torch.device('cpu')):
     elif not isinstance(model, nn.Module):
         raise ValueError("The model must be a class or an instance of nn.Module.")
         
-    checkpoint_dict = torch.load(checkpoint_file, weights_only=False)
+    checkpoint_dict = torch.load(checkpoint_file, weights_only=False, map_location=device)
     model.load_state_dict(checkpoint_dict['model_state_dict']) 
     return model.to(device)
 
