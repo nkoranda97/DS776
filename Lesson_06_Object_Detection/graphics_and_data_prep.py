@@ -13,7 +13,134 @@ from torchvision import ops
 import urllib.request
 import matplotlib.pyplot as plt
 
-def prepare_penn_fudan_dataset(target_dir: Path, seed=42):
+def prepare_penn_fudan_yolo(target_dir: Path, seed=42):
+    # Define paths for the dataset and processed directories
+    dataset_url = "https://www.cis.upenn.edu/~jshi/ped_html/PennFudanPed.zip"
+    dataset_zip = target_dir / "PennFudanPed.zip"
+    dataset_dir = target_dir / "PennFudanPed"
+    yolo_dataset_dir = target_dir / "PennFudanPedYOLO"
+
+    # Step 1: Check if PennFudanPedYOLO already exists
+    if yolo_dataset_dir.exists():
+        print("PennFudanPedYOLO already exists. Stopping preparation.")
+        return
+
+    # Step 2: Download and unzip the dataset if not already downloaded
+    if not dataset_zip.exists():
+        urllib.request.urlretrieve(dataset_url, dataset_zip)
+    
+    # Unzip dataset if not already unzipped
+    if not dataset_dir.exists():
+        with zipfile.ZipFile(dataset_zip, 'r') as zip_ref:
+            zip_ref.extractall(target_dir)
+
+    # Step 3: Copy the extracted dataset to PennFudanPedYOLO
+    shutil.copytree(dataset_dir, yolo_dataset_dir)
+    dataset_dir = yolo_dataset_dir
+
+    # Define paths for images, annotations, masks, and labels
+    images_dir = dataset_dir / "PNGImages"
+    annotations_dir = dataset_dir / "Annotation"
+    masks_dir = dataset_dir / "PedMasks"
+    labels_dir = dataset_dir / "labels"
+    
+    # Create labels directory for YOLO annotations
+    labels_dir.mkdir(exist_ok=True)
+    
+    # Step 4: Convert annotations to YOLO format and store in labels directory
+    def convert_annotation_to_yolo(annotation_file, image_width, image_height):
+        yolo_annotations = []
+        
+        with annotation_file.open('r') as file:
+            lines = file.readlines()
+            
+            for line in lines:
+                if "Bounding box" in line:
+                    # Extract coordinates using regular expressions
+                    match = re.search(r"\((\d+), (\d+)\) - \((\d+), (\d+)\)", line)
+                    if match:
+                        Xmin, Ymin, Xmax, Ymax = map(int, match.groups())
+                        
+                        # Convert to YOLO format
+                        x_center = (Xmin + Xmax) / 2 / image_width
+                        y_center = (Ymin + Ymax) / 2 / image_height
+                        width = (Xmax - Xmin) / image_width
+                        height = (Ymax - Ymin) / image_height
+                        yolo_annotations.append(f"0 {x_center} {y_center} {width} {height}\n")
+                        
+        return yolo_annotations
+
+    # Process all annotation files and save in the labels folder
+    for annotation_file in annotations_dir.glob("*.txt"):
+        image_filename = annotation_file.stem + ".png"
+        image_path = images_dir / image_filename
+        
+        if image_path.exists():
+            # Read image dimensions
+            image = cv2.imread(str(image_path))
+            h, w = image.shape[:2]
+            
+            # Convert annotation to YOLO format
+            yolo_data = convert_annotation_to_yolo(annotation_file, w, h)
+            
+            # Save YOLO annotation file
+            yolo_label_path = labels_dir / annotation_file.name
+            with yolo_label_path.open('w') as f:
+                f.writelines(yolo_data)
+
+    # Step 5: Split dataset into train and val subsets
+    random.seed(seed)
+    image_files = sorted([f for f in images_dir.glob("*.png")])
+    random.shuffle(image_files)
+    
+    split_index = int(0.8 * len(image_files))
+    train_files = {f.stem for f in image_files[:split_index]}  # Use base filenames for faster lookups
+    val_files = {f.stem for f in image_files[split_index:]}
+    
+    # Create new train/val directory structure with subfolders
+    for split in ["train", "val"]:
+        (dataset_dir / split / "images").mkdir(parents=True, exist_ok=True)
+        (dataset_dir / split / "annotations").mkdir(parents=True, exist_ok=True)
+        (dataset_dir / split / "masks").mkdir(parents=True, exist_ok=True)
+        (dataset_dir / split / "labels").mkdir(parents=True, exist_ok=True)
+    
+    # Helper function to move files
+    def move_files(files, src_dir, train_dir, val_dir, is_mask=False):
+        for file in files:
+            base_name = file.stem
+            if is_mask:
+                base_name = base_name.replace("_mask", "")  # Remove "_mask" to match with image names
+            
+            if base_name in train_files:
+                dst_dir = train_dir
+            elif base_name in val_files:
+                dst_dir = val_dir
+            else:
+                continue  # Skip files not in train or val sets
+            
+            src_file = src_dir / file.name
+            dst_file = dst_dir / file.name
+            
+            # Move the file if it exists
+            if src_file.exists():
+                shutil.move(str(src_file), str(dst_file))
+
+    # Move images, annotations, masks, and labels based on the split
+    move_files(image_files, images_dir, dataset_dir / "train" / "images", dataset_dir / "val" / "images")
+    move_files(annotations_dir.glob("*.txt"), annotations_dir, dataset_dir / "train" / "annotations", dataset_dir / "val" / "annotations")
+    move_files(masks_dir.glob("*.png"), masks_dir, dataset_dir / "train" / "masks", dataset_dir / "val" / "masks", is_mask=True)
+    move_files(labels_dir.glob("*.txt"), labels_dir, dataset_dir / "train" / "labels", dataset_dir / "val" / "labels")
+    
+    # Step 6: Remove original directories
+    shutil.rmtree(images_dir)
+    shutil.rmtree(annotations_dir)
+    shutil.rmtree(masks_dir)
+    shutil.rmtree(labels_dir)
+
+    print("Dataset preparation complete, and original directories removed!")
+
+
+def prepare_penn_fudan_orig(target_dir: Path, seed=42):
     # Define paths for the dataset and processed directories
     dataset_url = "https://www.cis.upenn.edu/~jshi/ped_html/PennFudanPed.zip"
     dataset_zip = target_dir / "PennFudanPed.zip"
@@ -137,6 +264,7 @@ def prepare_penn_fudan_dataset(target_dir: Path, seed=42):
 
 
     # Helper function to display boxes on an axis
+
 def display_boxes(ax, boxes, color, label):
     """
     Display bounding boxes on an axis.
