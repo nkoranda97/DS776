@@ -21,7 +21,7 @@ if 'VSCODE_PID' in os.environ:
 else:
     from tqdm.autonotebook import tqdm
 '''
-from tqdm.autonotebook import tqdm
+from tqdm.notebook import tqdm
 
 # Set Seaborn theme
 sns.set_theme(style="darkgrid")
