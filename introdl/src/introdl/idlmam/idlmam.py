@@ -15,10 +15,13 @@ import time
 # to a version that works in different environments
 
 # Check if running in VSCode or JupyterLab
+'''
 if 'VSCODE_PID' in os.environ:
     from tqdm import tqdm
 else:
     from tqdm.autonotebook import tqdm
+'''
+from tqdm.autonotebook import tqdm
 
 # Set Seaborn theme
 sns.set_theme(style="darkgrid")
@@ -235,11 +238,6 @@ def run_epoch(model, optimizer, data_loader, loss_func, device, results, score_f
                 results[prefix + " " + name].append(float("NaN"))
     
     return end - start  # Return time spent on epoch
-
-from tqdm.autonotebook import tqdm  # Updated import
-import os
-import pandas as pd
-import torch
 
 def train_network(model, loss_func, train_loader, val_loader=None, test_loader=None, score_funcs=None, 
                   epochs=50, device="cpu", checkpoint_file=None, lr_schedule=None, optimizer=None, 
