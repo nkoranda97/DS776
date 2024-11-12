@@ -236,7 +236,133 @@ def run_epoch(model, optimizer, data_loader, loss_func, device, results, score_f
     
     return end - start  # Return time spent on epoch
 
-    
+from tqdm import tqdm
+import os
+import pandas as pd
+import torch
+
+def train_network(model, loss_func, train_loader, val_loader=None, test_loader=None, score_funcs=None, 
+                  epochs=50, device="cpu", checkpoint_file=None, lr_schedule=None, optimizer=None, 
+                  disable_tqdm=False, resume_file=None, resume_checkpoint=False, 
+                  early_stop_metric=None, early_stop_crit="min", patience=4, grad_clip=None,
+                  scheduler_step_per_batch=False):
+    if score_funcs is None:
+        score_funcs = {}
+
+    if early_stop_metric and early_stop_metric != "loss" and early_stop_metric not in score_funcs:
+        raise ValueError(f"Early stop metric '{early_stop_metric}' must be 'loss' or one of the provided score functions.")
+
+    if early_stop_crit not in ["min", "max"]:
+        raise ValueError("early_stop_crit should be 'min' or 'max'")
+    early_stop_op = min if early_stop_crit == "min" else max
+
+    to_track = ["epoch", "total time", "train loss"]
+    if val_loader is not None:
+        to_track.append("val loss")
+    if test_loader is not None:
+        to_track.append("test loss")
+    for eval_score in score_funcs:
+        to_track.append("train " + eval_score)
+        if val_loader is not None:
+            to_track.append("val " + eval_score)
+        if test_loader is not None:
+            to_track.append("test " + eval_score)
+    if lr_schedule is not None:
+        to_track.append("lr")
+
+    total_train_time = 0
+    start_epoch = 0
+    results = {item: [] for item in to_track}
+
+    if resume_checkpoint and resume_file is None and checkpoint_file and os.path.exists(checkpoint_file):
+        resume_file = checkpoint_file
+
+    if resume_file is not None:
+        start_epoch, total_train_time, results = load_checkpoint(model, optimizer, lr_schedule, resume_file, device)
+
+    if optimizer is None:
+        optimizer = torch.optim.AdamW(model.parameters())
+        del_opt = True
+    else:
+        del_opt = False
+
+    model.to(device)
+    best_metric = float('inf') if early_stop_crit == "min" else -float('inf')
+    no_improvement = 0
+
+    for epoch in range(start_epoch, start_epoch + epochs):
+        # Create a tqdm progress bar for each epoch
+        with tqdm(total=len(train_loader), desc=f"Epoch {epoch+1}/{epochs}", disable=disable_tqdm) as pbar:
+            model.train()
+            epoch_train_loss = 0  # Track training loss for the epoch
+            metric_results = {}  # Track additional metrics for display
+
+            for batch in train_loader:
+                loss = run_epoch(model, optimizer, batch, loss_func, device, results, score_funcs, "train", grad_clip=grad_clip, lr_schedule=lr_schedule, scheduler_step_per_batch=scheduler_step_per_batch)
+                epoch_train_loss += loss
+
+                # Update metric results for display
+                metric_results["train loss"] = epoch_train_loss / len(train_loader)
+                
+                if score_funcs:
+                    for name, func in score_funcs.items():
+                        metric_results[f"train {name}"] = func(model, train_loader)  # Example calculation, adjust as needed
+
+                # Update the tqdm bar with the current metrics
+                pbar.set_postfix(metric_results)
+                pbar.update(1)  # Increment the progress bar
+
+            # Save end-of-epoch results
+            results["train loss"].append(epoch_train_loss / len(train_loader))
+            results["epoch"].append(epoch)
+
+            if val_loader:
+                model.eval()
+                epoch_val_loss = 0
+                with torch.no_grad():
+                    for batch in val_loader:
+                        loss = run_epoch(model, optimizer, batch, loss_func, device, results, score_funcs, "val")
+                        epoch_val_loss += loss
+                results["val loss"].append(epoch_val_loss / len(val_loader))
+                metric_results["val loss"] = results["val loss"][-1]  # Update for display
+
+                # Update best metric and early stopping
+                if early_stop_metric:
+                    monitor_value = results[f"val {early_stop_metric}"][-1] if early_stop_metric != "loss" else results["val loss"][-1]
+                    if early_stop_op(monitor_value, best_metric) == monitor_value:
+                        best_metric = monitor_value
+                        no_improvement = 0
+                        if checkpoint_file:
+                            save_checkpoint(epoch, model, optimizer, results, checkpoint_file, lr_schedule)
+                    else:
+                        no_improvement += 1
+                        if no_improvement >= patience:
+                            print(f"Early stopping at epoch {epoch}")
+                            break
+
+        if lr_schedule and not scheduler_step_per_batch:
+            if isinstance(lr_schedule, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                lr_schedule.step(results["val loss"][-1])
+            elif _scheduler_accepts_epoch(lr_schedule):
+                lr_schedule.step(epoch=epoch)
+            else:
+                lr_schedule.step()
+
+        if test_loader:
+            model.eval()
+            epoch_test_loss = 0
+            with torch.no_grad():
+                for batch in test_loader:
+                    loss = run_epoch(model, optimizer, batch, loss_func, device, results, score_funcs, "test")
+                    epoch_test_loss += loss
+            results["test loss"].append(epoch_test_loss / len(test_loader))
+
+    if del_opt:
+        del optimizer
+
+    return pd.DataFrame.from_dict(results)
+
+'''   
 def train_network(model, loss_func, train_loader, val_loader=None, test_loader=None, score_funcs=None, 
                   epochs=50, device="cpu", checkpoint_file=None, lr_schedule=None, optimizer=None, 
                   disable_tqdm=False, resume_file=None, resume_checkpoint=False, 
@@ -390,7 +516,7 @@ def train_network(model, loss_func, train_loader, val_loader=None, test_loader=N
         del optimizer
 
     return pd.DataFrame.from_dict(results)
-
+'''
 
 def train_simple_network(model, loss_func, train_loader, test_loader=None, score_funcs=None, 
                          epochs=50, device="cpu", checkpoint_file=None, lr=0.001, use_tqdm=True):
@@ -495,158 +621,6 @@ def save_checkpoint(epoch, model, optimizer, results, checkpoint_file, lr_schedu
     if lr_schedule is not None:
         save_dict['lr_scheduler_state_dict'] = lr_schedule.state_dict()
     torch.save(save_dict, checkpoint_file)
-
-'''
-def train_network(model, loss_func, train_loader, val_loader=None, test_loader=None, score_funcs=None, 
-                  epochs=50, device="cpu", checkpoint_file=None, lr_schedule=None, optimizer=None, 
-                  disable_tqdm=False, resume_file=None, resume_checkpoint=False, 
-                  early_stop_metric=None, early_stop_crit="min", patience=4, grad_clip=None):
-    """
-        Train simple neural networks.
-
-    Args:
-        model (torch.nn.Module): The neural network model to train.
-        loss_func (callable): The loss function to optimize during training.
-        train_loader (torch.utils.data.DataLoader): The data loader for the training dataset.
-        val_loader (torch.utils.data.DataLoader, optional): Data loader for the validation dataset.
-            Typically used to monitor performance during training and guide early stopping.
-            If early stopping is enabled, performance on this set will dictate when training stops.
-        test_loader (torch.utils.data.DataLoader, optional): Data loader for the test dataset.
-            In most cases, the test set is reserved for final evaluation after training completes.
-            However, in specific scenarios (e.g., incremental learning, research experiments),
-            it may be used during training to monitor generalization performance.
-        score_funcs (dict, optional): A dictionary of additional evaluation metrics to track during training. 
-            The keys are the names of the metrics and the values are callable functions that compute the metrics. 
-            Default is None.
-        epochs (int, optional): The number of training epochs. Default is 50.
-        device (str, optional): The device to use for training. Default is "cpu".
-        checkpoint_file (str, optional): The file path to save the model checkpoints. Default is None.
-        lr_schedule (torch.optim.lr_scheduler._LRScheduler, optional): The learning rate scheduler. 
-            Default is None.
-        optimizer (torch.optim.Optimizer, optional): The optimizer to use for training. 
-            If None, AdamW optimizer will be used. Default is None.
-        disable_tqdm (bool, optional): Whether to disable the tqdm progress bar. Default is False.
-        resume_file (str, optional): The file path to resume training from a checkpoint. Default is None.
-        resume_checkpoint (bool, optional): Whether to resume training from the provided checkpoint file. 
-            If True, the checkpoint_file parameter will be used as the resume_file. Default is False.
-        early_stop_metric (str, optional): The evaluation metric to use for early stopping. 
-            If provided, training will stop if the metric does not improve for a certain number of epochs. 
-            Default is None.  Must provide val_loader if using early stopping.
-        early_stop_crit (str, optional): The criterion for early stopping. 
-            Must be either "min" or "max". Default is "min".
-        patience (int, optional): The number of epochs to wait for improvement in the early stop metric 
-            before stopping training. Default is 4.
-
-    Returns:
-        pandas.DataFrame: A DataFrame containing the training results, including the loss and evaluation metrics 
-        for each epoch.
-
-    Raises:
-        ValueError: If the early_stop_metric is not "loss" and not one of the provided score functions.
-        ValueError: If the early_stop_crit is not "min" or "max".
-
-    """
-
-    if score_funcs is None:
-        score_funcs = {}
-
-    if early_stop_metric and early_stop_metric != "loss" and early_stop_metric not in score_funcs:
-        raise ValueError(f"Early stop metric '{early_stop_metric}' must be 'loss' or one of the provided score functions.")
-
-    if early_stop_crit not in ["min", "max"]:
-        raise ValueError("early_stop_crit should be 'min' or 'max'")
-    early_stop_op = min if early_stop_crit == "min" else max
-
-    to_track = ["epoch", "total time", "train loss"]
-    if val_loader is not None:
-        to_track.append("val loss")
-    if test_loader is not None:
-        to_track.append("test loss")
-    for eval_score in score_funcs:
-        to_track.append("train " + eval_score)
-        if val_loader is not None:
-            to_track.append("val " + eval_score)
-        if test_loader is not None:
-            to_track.append("test " + eval_score)
-    if lr_schedule is not None:
-        to_track.append("lr")
-
-    total_train_time = 0
-    start_epoch = 0
-    results = {item: [] for item in to_track}
-
-    if resume_checkpoint and resume_file is None and checkpoint_file and os.path.exists(checkpoint_file):
-        resume_file = checkpoint_file
-
-    if resume_file is not None:
-        start_epoch, total_train_time, results = load_checkpoint(model, optimizer, lr_schedule, resume_file, device)
-
-    if optimizer is None:
-        optimizer = torch.optim.AdamW(model.parameters())
-        del_opt = True
-    else:
-        del_opt = False
-
-    model.to(device)
-    best_metric = float('inf') if early_stop_crit == "min" else -float('inf')
-    no_improvement = 0
-    for epoch in tqdm(range(start_epoch, start_epoch + epochs), desc="Epoch", disable=disable_tqdm):
-        model.train()
-        total_train_time += run_epoch(model, optimizer, train_loader, loss_func, device, results, score_funcs, "train")
-        results["epoch"].append(epoch)
-        results["total time"].append(total_train_time)
-
-        if val_loader:
-            model.eval()
-            with torch.no_grad():
-                run_epoch(model, optimizer, val_loader, loss_func, device, results, score_funcs, "val",grad_clip=grad_clip)
-
-                # Early stopping with specified metric if provided
-                if early_stop_metric:
-                    monitor_value = results[f"val {early_stop_metric}"][-1] if early_stop_metric != "loss" else val_loss
-                    if early_stop_op(monitor_value, best_metric) == monitor_value:
-                        best_metric = monitor_value
-                        no_improvement = 0
-                        if checkpoint_file:
-                            save_checkpoint(epoch, model, optimizer, results, checkpoint_file, lr_schedule)
-                    else:
-                        no_improvement += 1
-                        if no_improvement >= patience:
-                            print(f"Early stopping at epoch {epoch}")
-                            break
-
-        if lr_schedule:
-            results["lr"].append(optimizer.param_groups[0]['lr'])
-            if isinstance(lr_schedule, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                lr_schedule.step(results["val loss"][-1])
-            elif _scheduler_accepts_epoch(lr_schedule):
-                lr_schedule.step(epoch=epoch)
-            else:
-                lr_schedule.step()
-
-        if test_loader:
-            model.eval()
-            with torch.no_grad():
-                run_epoch(model, optimizer, test_loader, loss_func, device, results, score_funcs, "test")
-
-        if checkpoint_file and early_stop_metric is None:
-            save_checkpoint(epoch, model, optimizer, results, checkpoint_file, lr_schedule)
-
-        if disable_tqdm:
-            # Clear the previous output
-            clear_output(wait=True)
-            
-            # Display the current epoch
-            print(f"Completed Epoch: {epoch + 1}/{epochs}")
-            
-            # Display the last 5 rows of the results DataFrame
-            display(pd.DataFrame(results).tail(5))
-
-    if del_opt:
-        del optimizer
-
-    return pd.DataFrame.from_dict(results)
-'''
 
 def _scheduler_accepts_epoch(scheduler):
     """
