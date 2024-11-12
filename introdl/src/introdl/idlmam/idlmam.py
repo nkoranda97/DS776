@@ -236,7 +236,7 @@ def run_epoch(model, optimizer, data_loader, loss_func, device, results, score_f
     
     return end - start  # Return time spent on epoch
 
-from tqdm import tqdm
+from tqdm.autonotebook import tqdm  # Updated import
 import os
 import pandas as pd
 import torch
@@ -292,7 +292,7 @@ def train_network(model, loss_func, train_loader, val_loader=None, test_loader=N
 
     for epoch in range(start_epoch, start_epoch + epochs):
         # Create a tqdm progress bar for each epoch
-        with tqdm(total=len(train_loader), desc=f"Epoch {epoch+1}/{epochs}", disable=disable_tqdm) as pbar:
+        with tqdm(total=len(train_loader), desc=f"Epoch {epoch+1}/{epochs}", disable=disable_tqdm, leave=True) as pbar:
             model.train()
             epoch_train_loss = 0  # Track training loss for the epoch
             metric_results = {}  # Track additional metrics for display
@@ -311,6 +311,7 @@ def train_network(model, loss_func, train_loader, val_loader=None, test_loader=N
                 # Update the tqdm bar with the current metrics
                 pbar.set_postfix(metric_results)
                 pbar.update(1)  # Increment the progress bar
+                pbar.refresh()  # Refresh the display to show updates immediately in Jupyter
 
             # Save end-of-epoch results
             results["train loss"].append(epoch_train_loss / len(train_loader))
@@ -361,6 +362,7 @@ def train_network(model, loss_func, train_loader, val_loader=None, test_loader=N
         del optimizer
 
     return pd.DataFrame.from_dict(results)
+
 
 '''   
 def train_network(model, loss_func, train_loader, val_loader=None, test_loader=None, score_funcs=None, 
