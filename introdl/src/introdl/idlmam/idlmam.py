@@ -10,7 +10,6 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import time
 
-
 # tdqm progress bars can behave differently in different environments so we change tdqm
 # to a version that works in different environments
 
