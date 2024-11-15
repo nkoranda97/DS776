@@ -147,6 +147,10 @@ def show_image_grid(nrows, ncols, dataset, class_labels=None, indices=None, show
         image, label = dataset[idx]
         pred = preds[i] if preds is not None and show_preds else None
 
+        # If the image is a PIL image, convert it to numpy for plotting
+        if isinstance(image, Image.Image):
+            image = np.array(image)
+            
         # If the image is a tensor, convert to numpy for plotting
         if isinstance(image, torch.Tensor):
             image = image.permute(1, 2, 0).numpy()  # Change from (C, H, W) to (H, W, C) or (H, W) for grayscale

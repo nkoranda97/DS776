@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import inspect
 from torchinfo import summary
+import traceback
 
 ###########################################################
 # Utility Functions
@@ -74,6 +75,7 @@ def load_model(model, checkpoint_file, device=torch.device('cpu')):
     model.load_state_dict(checkpoint_dict['model_state_dict']) 
     return model.to(device)
 
+'''
 def summarizer(model, input_size, device=torch.device('cpu'), col_width=20):
     """
     Summarizes the given model by displaying the input size, output size, and number of parameters.
@@ -86,6 +88,34 @@ def summarizer(model, input_size, device=torch.device('cpu'), col_width=20):
     """
     model = model.to(device)
     print(summary(model, input_size=input_size, col_width=col_width, col_names=["input_size", "output_size", "num_params"]))
+'''
+
+def summarizer(model, input_size, device=torch.device('cpu'), col_width=20, verbose=False):
+    """
+    Summarizes the given model by displaying the input size, output size, and number of parameters.
+
+    Parameters:
+    - model: The model to summarize.
+    - input_size (tuple): The input size of the model.
+    - device (torch.device, optional): The device to summarize the model on. Defaults to 'cpu'.
+    - col_width (int, optional): The width of each column in the summary table. Defaults to 20.
+    - verbose (bool, optional): If True, display the full error stack trace; otherwise, show only a simplified error message. Defaults to False.
+    """
+    model = model.to(device)
+    try:
+        print(summary(model, input_size=input_size, col_width=col_width, col_names=["input_size", "output_size", "num_params"]))
+    except RuntimeError as e:
+        if verbose:
+            # Print the full stack trace and original error message
+            traceback.print_exc()
+            print(f"Original Error: {e}")
+        else:
+            # Display simplified error message with additional message for verbose option
+            error_message = str(e).splitlines()[-1].replace("See above stack traces for more details.", "").strip()
+            error_message = error_message.replace("Failed to run torchinfo.", "Failed to run all model layers.")
+            error_message += " Run again with verbose=True to see stack trace."
+            print(f"Error: {error_message}")
+
 
 
 def create_CIFAR10_loaders(transform_train=None, transform_test=None, transform_valid=None,
