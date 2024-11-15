@@ -18,7 +18,7 @@ import matplotlib.gridspec as gridspec
 from scipy.special import erf
 from PIL import Image, ImageOps, ImageDraw, ImageFont
 import torchvision.transforms as transforms
-
+from typing import Union, Optional
 
 ########################################################
 # Visualization Related Functions
@@ -37,7 +37,9 @@ def in_notebook():
     except NameError:
         return False  # Not in a notebook environment
 
-def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label_height=12, class_labels=None, indices=None, show_label=False, dark_mode=False):
+'''
+def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label_height=12, 
+                      class_labels=None, indices=None, show_label=False, dark_mode=False, cmap=None):
     """
     Creates a grid of images from a given dataset.
 
@@ -52,6 +54,7 @@ def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label
         indices (numpy.ndarray, optional): The indices of the images to include in the grid. If None, random indices will be chosen. Defaults to None.
         show_label (bool, optional): Whether to show the label below each image. Defaults to False.
         dark_mode (bool, optional): Whether to use a dark mode background. Defaults to False.
+        cmap (str, optional): Colormap to apply to grayscale images. Defaults to None.
 
     Returns:
         None
@@ -83,7 +86,15 @@ def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label
         image, label = dataset[data_idx]
 
         if isinstance(image, torch.Tensor):
-            image = Image.fromarray((image.permute(1, 2, 0).numpy() * 255).astype(np.uint8))
+            image = image.permute(1, 2, 0).numpy()
+            if image.shape[2] == 1:  # Grayscale image
+                image = np.squeeze(image, axis=2)
+                if cmap:
+                    image = plt.get_cmap(cmap)(image)[:, :, :3]  # Apply colormap and remove alpha channel
+                image = (image * 255).astype(np.uint8)
+            else:
+                image = (image * 255).astype(np.uint8)
+            image = Image.fromarray(image)
 
         image = image.resize(img_size, Image.Resampling.LANCZOS)
         
@@ -93,6 +104,125 @@ def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label
         
         canvas.paste(image, (x, y + (label_height if show_label else 0)))
         
+        if show_label:
+            label_text = class_labels[label] if class_labels else f'Label: {label}'
+            text_color = (255, 255, 255) if dark_mode else (0, 0, 0)
+            text_x = x + img_width // 2
+            text_y = y + label_height // 2
+            draw.text((text_x, text_y), label_text, fill=text_color, font=font, anchor="mm")
+
+    # Display the final grid image
+    if in_notebook():
+        display(canvas)  # Display inline in Jupyter notebook
+    else:
+        canvas.show()  # Open in a separate window if not in a notebook
+'''
+
+def preprocess_image(image: Union[torch.Tensor, Image.Image, np.ndarray], cmap: Optional[str] = None) -> Image.Image:
+    """
+    Preprocess an image to numpy RGB format.
+    Parameters:
+    image (Union[torch.Tensor, Image.Image, np.ndarray]): The input image to preprocess. It can be a PyTorch tensor, 
+                                                            a PIL image, or a numpy array.
+    cmap (Optional[str]): The colormap to apply if the image is grayscale. Default is None.
+    Returns:
+    Image.Image: The preprocessed image in RGB format as a PIL image.
+    Raises:
+    TypeError: If the input image type is unsupported.
+    ValueError: If the input image has an unexpected shape.
+    """
+    # Convert to numpy
+    if isinstance(image, torch.Tensor):
+        image = image.numpy()
+        if image.ndim == 3 and image.shape[0] in [1, 3]:  # Handle (C, H, W)
+            image = np.transpose(image, (1, 2, 0))
+    elif isinstance(image, Image.Image):  # Convert PIL image to numpy
+        image = np.array(image)
+    elif not isinstance(image, np.ndarray):  # Ensure image is numpy
+        raise TypeError(f"Unsupported image type: {type(image)}")
+
+    # Handle grayscale detection
+    if image.ndim == 2:  # Single-channel grayscale
+        is_grayscale = True
+    elif image.ndim == 3 and image.shape[2] == 1:  # 1-channel grayscale
+        image = np.squeeze(image, axis=2)
+        is_grayscale = True
+    elif image.ndim == 3 and image.shape[2] == 3:  # RGB
+        is_grayscale = np.allclose(image[:, :, 0], image[:, :, 1]) and np.allclose(image[:, :, 1], image[:, :, 2])
+        if is_grayscale:
+            image = image[:, :, 0]  # Collapse to single channel
+    else:
+        raise ValueError(f"Unexpected image shape: {image.shape}")
+
+    # Apply colormap if grayscale
+    if cmap and is_grayscale:
+        normalized = (image - image.min()) / (image.max() - image.min() + 1e-8)
+        colormap = plt.get_cmap(cmap)
+        image = (colormap(normalized)[:, :, :3] * 255).astype(np.uint8)
+    elif is_grayscale:  # Convert grayscale to RGB
+        image = np.stack([image] * 3, axis=-1)
+
+    # Ensure image is in uint8 format
+    if image.dtype != np.uint8:
+        image = (image * 255).astype(np.uint8)
+
+    return Image.fromarray(image)
+
+def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label_height=12, 
+                      class_labels=None, indices=None, show_label=False, dark_mode=False, cmap=None):
+    """
+    Creates a grid of images from a given dataset.
+
+    Args:
+        dataset (torch.utils.data.Dataset): The dataset containing the images and labels.
+        nrows (int): The number of rows in the grid.
+        ncols (int): The number of columns in the grid.
+        img_size (tuple, optional): The size of each image in the grid. Defaults to (64, 64).
+        padding (int, optional): The padding between images in the grid. Defaults to 2.
+        label_height (int, optional): The height of the label area below each image. Defaults to 12.
+        class_labels (list, optional): The list of class labels. If None, the dataset's classes will be used. Defaults to None.
+        indices (numpy.ndarray, optional): The indices of the images to include in the grid. If None, random indices will be chosen. Defaults to None.
+        show_label (bool, optional): Whether to show the label below each image. Defaults to False.
+        dark_mode (bool, optional): Whether to use a dark mode background. Defaults to False.
+        cmap (str, optional): Colormap to apply to grayscale images. Defaults to None.
+
+    Returns:
+        None
+    """
+    if class_labels is None and hasattr(dataset, 'classes'):
+        class_labels = dataset.classes
+
+    # Calculate canvas size
+    img_width, img_height = img_size
+    canvas_width = ncols * img_width + (ncols - 1) * padding
+    canvas_height = nrows * (img_height + (label_height if show_label else 0)) + (nrows - 1) * padding
+
+    # Create blank canvas with white or black background
+    bg_color = (0, 0, 0) if dark_mode else (255, 255, 255)
+    canvas = Image.new("RGB", (canvas_width, canvas_height), bg_color)
+    draw = ImageDraw.Draw(canvas)
+
+    # Default font for labels
+    try:
+        font = ImageFont.truetype("arial.ttf", 14)
+    except IOError:
+        font = ImageFont.load_default()
+
+    if indices is None:
+        indices = np.random.choice(len(dataset), nrows * ncols, replace=False)
+
+    # Place each image and label on the canvas
+    for idx, data_idx in enumerate(indices):
+        image, label = dataset[data_idx]
+        image = preprocess_image(image, cmap=cmap)  # Preprocess the image
+        image = image.resize(img_size, Image.Resampling.LANCZOS)
+
+        row, col = divmod(idx, ncols)
+        x = col * (img_width + padding)
+        y = row * (img_height + (label_height if show_label else 0) + padding)
+
+        canvas.paste(image, (x, y + (label_height if show_label else 0)))
+
         if show_label:
             label_text = class_labels[label] if class_labels else f'Label: {label}'
             text_color = (255, 255, 255) if dark_mode else (0, 0, 0)

@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split
 from torchvision.datasets import CIFAR10
-import torchvision.transforms as transforms
+import torchvision.transforms.v2 as transforms
 import sys
 import os
 import random
@@ -117,7 +117,7 @@ def summarizer(model, input_size, device=torch.device('cpu'), col_width=20, verb
             print(f"Error: {error_message}")
 
 
-
+'''
 def create_CIFAR10_loaders(transform_train=None, transform_test=None, transform_valid=None,
                            valid_prop=0.2, batch_size=64, seed=42, data_dir='./data', 
                            downsample_prop=1.0, num_workers=1, use_augmentation=False):
@@ -125,9 +125,9 @@ def create_CIFAR10_loaders(transform_train=None, transform_test=None, transform_
     Create data loaders for the CIFAR10 dataset.
 
     Args:
-        transform_train (torchvision.transforms.Compose, optional): Transformations for the training set. Defaults to standard training transforms if None.
-        transform_test (torchvision.transforms.Compose, optional): Transformations for the test set. Defaults to standard test transforms if None.
-        transform_valid (torchvision.transforms.Compose, optional): Transformations for the validation set. Defaults to None.
+        transform_train (torchvision.transforms.v2.Compose, optional): Transformations for the training set. Defaults to standard training transforms if None.
+        transform_test (torchvision.transforms.v2.Compose, optional): Transformations for the test set. Defaults to standard test transforms if None.
+        transform_valid (torchvision.transforms.v2.Compose, optional): Transformations for the validation set. Defaults to None.
         valid_prop (float or None): Proportion of the training set to use for validation. If 0.0 or None, no validation split is made.
         batch_size (int): Batch size for the data loaders.
         seed (int): Random seed for reproducibility.
@@ -139,30 +139,40 @@ def create_CIFAR10_loaders(transform_train=None, transform_test=None, transform_
     Returns:
         torch.utils.data.DataLoader: Data loaders for training and test datasets, and validation if valid_prop is set.
     """
+    print("inside create_CIFAR10_loaders")
+    print(f"{use_augmentation=}")
 
     # Set default transforms if none are supplied
-    mean = (0.4914, 0.4822, 0.4465)
+    mean = (0.4914, 0.4822, 0.4465) 
     std = (0.2023, 0.1994, 0.2010)
-    
+
     if transform_train is None:
         if use_augmentation:
+            print('choosing augmentation')
             transform_train = transforms.Compose([
+                transforms.ToImage(),
+                transforms.ToDtype(torch.float32, scale=True),
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
                 transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=mean, std=std)    
+                transforms.Normalize(mean=mean, std=std), 
+                transforms.ToPureTensor()   
             ])
         else:
+            print('choosing standard')
             transform_train = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Normalize(mean=mean, std=std)
+                transforms.ToImage(),
+                transforms.ToDtype(torch.float32, scale=True),
+                transforms.Normalize(mean=mean, std=std),
+                transforms.ToPureTensor()   
             ])
     
     if transform_test is None:
         transform_test = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=mean, std=std)
+            transforms.ToImage(),
+            transforms.ToDtype(torch.float32, scale=True),
+            transforms.Normalize(mean=mean, std=std),
+            transforms.ToPureTensor()   
         ])
         
     # Set validation transform; if None, use transform_test
@@ -179,9 +189,12 @@ def create_CIFAR10_loaders(transform_train=None, transform_test=None, transform_
     # Load the full training and test datasets
     train_dataset_full = CIFAR10(root=data_dir, train=True, download=True, transform=transform_train)
     test_dataset = CIFAR10(root=data_dir, train=False, download=True, transform=transform_test)
+    print('after instantiation')
+    print(f"{train_dataset_full.transform=}")
 
     # Downsample datasets if required
     if downsample_prop < 1.0:
+        print('downsampling')
         downsample_size_train = int(downsample_prop * len(train_dataset_full))
         train_dataset_full, _ = random_split(train_dataset_full, [downsample_size_train, len(train_dataset_full) - downsample_size_train], generator=torch.Generator().manual_seed(seed))
         
@@ -193,8 +206,12 @@ def create_CIFAR10_loaders(transform_train=None, transform_test=None, transform_
         train_size = int((1 - valid_prop) * len(train_dataset_full))
         valid_size = len(train_dataset_full) - train_size
         train_dataset, valid_dataset = random_split(train_dataset_full, [train_size, valid_size], generator=torch.Generator().manual_seed(seed))
+        print('after split')
+        print(f"{train_dataset.dataset.transform=}")
+        print(f"{valid_dataset.dataset.transform=}")
 
         # Apply validation transform to validation dataset
+        train_dataset.dataset.transform = transform_train
         valid_dataset.dataset.transform = transform_valid
 
         # Create data loaders for training, validation, and test sets
@@ -202,10 +219,114 @@ def create_CIFAR10_loaders(transform_train=None, transform_test=None, transform_
         valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
-        return train_loader, valid_loader, test_loader
+        print(train_loader.dataset.dataset.transform)
+        print(valid_loader.dataset.dataset.transform)
+
+        return train_loader, valid_loader, test_loader, train_dataset, valid_dataset, test_dataset
     else:
         # If no validation set is needed
         train_loader = DataLoader(train_dataset_full, batch_size=batch_size, shuffle=True, num_workers=num_workers)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
+        return train_loader, test_loader
+'''
+
+from sklearn.model_selection import train_test_split
+from torch.utils.data import Subset
+
+def create_CIFAR10_loaders(transform_train=None, transform_test=None, transform_valid=None,
+                           valid_prop=0.2, batch_size=64, seed=42, data_dir='./data', 
+                           downsample_prop=1.0, num_workers=1, persistent_workers = True, 
+                           use_augmentation=False):
+    """
+    Create data loaders for the CIFAR10 dataset.
+
+    Args:
+        transform_train (torchvision.transforms.v2.Compose, optional): Transformations for the training set. Defaults to standard training transforms if None.
+        transform_test (torchvision.transforms.v2.Compose, optional): Transformations for the test set. Defaults to standard test transforms if None.
+        transform_valid (torchvision.transforms.v2.Compose, optional): Transformations for the validation set. Defaults to None.
+        valid_prop (float or None): Proportion of the training set to use for validation. If 0.0 or None, no validation split is made.
+        batch_size (int): Batch size for the data loaders.
+        seed (int): Random seed for reproducibility.
+        data_dir (str): Directory to download/load CIFAR10 data.
+        downsample_prop (float): Proportion of the dataset to keep if less than 1. Defaults to 1.0.
+        num_workers (int): Number of worker processes to use for data loading.
+        use_augmentation (bool): Whether to apply data augmentation to the training set. Defaults to False.
+
+    Returns:
+        tuple: Train loader, test loader, and optionally valid loader, along with the datasets.
+    """
+
+    # Set default transforms if none are supplied
+    mean = (0.4914, 0.4822, 0.4465) 
+    std = (0.2023, 0.1994, 0.2010)
+
+    if transform_train is None:
+        if use_augmentation:
+            transform_train = transforms.Compose([
+                transforms.ToImage(),
+                transforms.ToDtype(torch.float32, scale=True),
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+                transforms.Normalize(mean=mean, std=std), 
+                transforms.ToPureTensor()   
+            ])
+        else:
+            transform_train = transforms.Compose([
+                transforms.ToImage(),
+                transforms.ToDtype(torch.float32, scale=True),
+                transforms.Normalize(mean=mean, std=std),
+                transforms.ToPureTensor()   
+            ])
+    
+    if transform_test is None:
+        transform_test = transforms.Compose([
+            transforms.ToImage(),
+            transforms.ToDtype(torch.float32, scale=True),
+            transforms.Normalize(mean=mean, std=std),
+            transforms.ToPureTensor()   
+        ])
+        
+    # Set validation transform; if None, use transform_test
+    if transform_valid is None:
+        transform_valid = transform_test
+
+    # Load the full training and test datasets
+    train_dataset_full = CIFAR10(root=data_dir, train=True, download=True, transform=transform_train)
+    test_dataset = CIFAR10(root=data_dir, train=False, download=True, transform=transform_test)
+
+    # Generate indices for training and validation if needed
+    train_indices, valid_indices = None, None
+    if valid_prop and 0 < valid_prop < 1.0:
+        total_indices = list(range(len(train_dataset_full)))
+        train_indices, valid_indices = train_test_split(
+            total_indices,
+            test_size=valid_prop,
+            random_state=seed,
+            shuffle=True
+        )
+
+    # Downsample datasets if required
+    if downsample_prop < 1.0:
+        train_indices = train_indices[:int(downsample_prop * len(train_indices))] if train_indices else None
+        valid_indices = valid_indices[:int(downsample_prop * len(valid_indices))] if valid_indices else None
+
+    # Create Subset datasets for training and optionally validation
+    train_dataset = Subset(train_dataset_full, train_indices) if train_indices else train_dataset_full
+    valid_dataset = Subset(CIFAR10(root=data_dir, train=True, download=True, transform=transform_valid), valid_indices) if valid_indices else None
+
+    # Create data loaders
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, 
+                              num_workers=num_workers, persistent_workers=persistent_workers)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, 
+                             num_workers=num_workers, persistent_workers=persistent_workers)
+    valid_loader = None
+    if valid_dataset:
+        valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, 
+                                  num_workers=num_workers, persistent_workers=persistent_workers)
+
+    if valid_loader:
+        return train_loader, valid_loader, test_loader
+    else:
         return train_loader, test_loader

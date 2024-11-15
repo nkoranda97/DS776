@@ -20,11 +20,15 @@ if 'VSCODE_PID' in os.environ:
 else:
     from tqdm.autonotebook import tqdm
 '''
+'''
 import warnings
 from tqdm import TqdmExperimentalWarning
 # Suppress TqdmExperimentalWarning
 warnings.filterwarnings("ignore", category=TqdmExperimentalWarning)
 from tqdm.autonotebook import tqdm
+'''
+
+from tqdm import tqdm
 
 
 # Set Seaborn theme
@@ -171,60 +175,62 @@ def run_epoch(model, optimizer, data_loader, loss_func, device, results, score_f
     is_regression = isinstance(loss_func, (nn.MSELoss, nn.L1Loss, nn.SmoothL1Loss))
     
     # Loop over batches
-    for inputs, labels in tqdm(data_loader, desc=desc, leave=False, disable=not use_tqdm):
-        # Move the batch to the device we are using
-        inputs = moveTo(inputs, device)
-        labels = moveTo(labels, device)
+    with tqdm(total=len(data_loader), desc=desc, leave=False, 
+              disable=not use_tqdm, dynamic_ncols=True) as batch_pbar:
+        for inputs, labels in data_loader:
+            # Move the batch to the device we are using
+            inputs = moveTo(inputs, device)
+            labels = moveTo(labels, device)
 
-        # Forward pass
-        y_hat = model(inputs)
-        
-        # Compute loss
-        loss = loss_func(y_hat, labels)
-
-        if model.training:
-            loss.backward()  # Compute gradients
+            # Forward pass
+            y_hat = model(inputs)
             
-            # Gradient clipping
-            if grad_clip: 
-                nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            # Compute loss
+            loss = loss_func(y_hat, labels)
 
-            optimizer.step()  # Update the weights
-            optimizer.zero_grad()  # Zero the gradients
+            if model.training:
+                loss.backward()  # Compute gradients
+                
+                # Gradient clipping
+                if grad_clip: 
+                    nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
 
-            # Step the learning rate scheduler per batch if specified
-            if lr_schedule is not None and scheduler_step_per_batch:
-                lr_schedule.step()
-        
-        # Store loss
-        running_loss.append(loss.item())
+                optimizer.step()  # Update the weights
+                optimizer.zero_grad()  # Zero the gradients
 
-        if score_funcs is not None and len(score_funcs) > 0 and isinstance(labels, torch.Tensor):
-            # Move labels & predictions back to CPU for processing and metric calculation
-            labels = labels.detach().cpu().numpy()
-            y_hat = y_hat.detach().cpu().numpy()
+                # Step the learning rate scheduler per batch if specified
+                if lr_schedule is not None and scheduler_step_per_batch:
+                    lr_schedule.step()
             
-            # Process predictions based on detected task type
-            if not is_regression:
-                if len(y_hat.shape) == 2 and y_hat.shape[1] > 1:  # Multiclass classification
-                    y_hat = np.argmax(y_hat, axis=1)
-                    labels = labels.flatten()
+            # Store loss
+            running_loss.append(loss.item())
 
-                elif len(y_hat.shape) == 2 and y_hat.shape[1] == 1:  # Binary classification
-                    y_hat = (y_hat > threshold).astype(int).flatten()
-                    labels = labels.flatten()
+            if score_funcs is not None and len(score_funcs) > 0 and isinstance(labels, torch.Tensor):
+                # Move labels & predictions back to CPU for processing and metric calculation
+                labels = labels.detach().cpu().numpy()
+                y_hat = y_hat.detach().cpu().numpy()
+                
+                # Process predictions based on detected task type
+                if not is_regression:
+                    if len(y_hat.shape) == 2 and y_hat.shape[1] > 1:  # Multiclass classification
+                        y_hat = np.argmax(y_hat, axis=1)
+                        labels = labels.flatten()
 
-                elif len(y_hat.shape) >= 3 and y_hat.shape[1] == 1:  # Binary segmentation
-                    y_hat = (y_hat > threshold).astype(int).flatten()  # Flatten for pixel-level comparison
-                    labels = labels.flatten()
+                    elif len(y_hat.shape) == 2 and y_hat.shape[1] == 1:  # Binary classification
+                        y_hat = (y_hat > threshold).astype(int).flatten()
+                        labels = labels.flatten()
 
-                elif len(y_hat.shape) >= 3 and y_hat.shape[1] > 1:  # Multiclass segmentation
-                    y_hat = np.argmax(y_hat, axis=1).flatten()  # Flatten for pixel-level comparison
-                    labels = labels.flatten()
+                    elif len(y_hat.shape) >= 3 and y_hat.shape[1] == 1:  # Binary segmentation
+                        y_hat = (y_hat > threshold).astype(int).flatten()  # Flatten for pixel-level comparison
+                        labels = labels.flatten()
 
-            # Store processed true and predicted values for scoring
-            y_true.extend(labels.tolist())
-            y_pred.extend(y_hat.tolist())
+                    elif len(y_hat.shape) >= 3 and y_hat.shape[1] > 1:  # Multiclass segmentation
+                        y_hat = np.argmax(y_hat, axis=1).flatten()  # Flatten for pixel-level comparison
+                        labels = labels.flatten()
+
+                # Store processed true and predicted values for scoring
+                y_true.extend(labels.tolist())
+                y_pred.extend(y_hat.tolist())
 
     # End training epoch
     end = time.time()
@@ -341,7 +347,7 @@ def train_network(model, loss_func, train_loader, val_loader=None, test_loader=N
     best_metric = float('inf') if early_stop_crit == "min" else -float('inf')
     no_improvement = 0
 
-    with tqdm(total=epochs, desc="Epoch", disable=disable_tqdm) as pbar:
+    with tqdm(total=epochs, desc="Epoch", disable=disable_tqdm, leave=True, dynamic_ncols=True) as pbar:
         for epoch in range(start_epoch, start_epoch + epochs):
             model.train()
             total_train_time += run_epoch(model, optimizer, train_loader, loss_func, device, results, score_funcs, 
@@ -371,7 +377,6 @@ def train_network(model, loss_func, train_loader, val_loader=None, test_loader=N
                             if no_improvement >= patience:
                                 print(f"Early stopping at epoch {epoch}")
                                 break
-            pbar.update(1)
 
             if lr_schedule:
                 # Record the learning rate after stepping
@@ -388,7 +393,11 @@ def train_network(model, loss_func, train_loader, val_loader=None, test_loader=N
                 model.eval()
                 with torch.no_grad():
                     run_epoch(model, optimizer, test_loader, loss_func, device, results, score_funcs, 
-                            prefix="test", desc="test")
+                            prefix="test", desc="Testing Batch")
+                    if val_loader:  
+                        pbar.set_postfix(train_loss=results["train loss"][-1],val_loss=results["val loss"][-1])
+                    else:
+                        pbar.set_postfix(train_loss=results["train loss"][-1],test_loss=results["test loss"][-1])
 
             if checkpoint_file and early_stop_metric is None:
                 save_checkpoint(epoch, model, optimizer, results, checkpoint_file, lr_schedule)
@@ -403,6 +412,8 @@ def train_network(model, loss_func, train_loader, val_loader=None, test_loader=N
                 # Display the last 5 rows of the results DataFrame
                 display(pd.DataFrame(results).tail(5))
 
+            pbar.update(1)
+            
     if del_opt:
         del optimizer
 
