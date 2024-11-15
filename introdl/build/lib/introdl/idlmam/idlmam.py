@@ -13,11 +13,19 @@ import time
 # tdqm progress bars can behave differently in different environments so we change tdqm
 # to a version that works in different environments
 
+'''
 # Check if running in VSCode or JupyterLab
 if 'VSCODE_PID' in os.environ:
     from tqdm import tqdm
 else:
     from tqdm.autonotebook import tqdm
+'''
+import warnings
+from tqdm import TqdmExperimentalWarning
+# Suppress TqdmExperimentalWarning
+warnings.filterwarnings("ignore", category=TqdmExperimentalWarning)
+from tqdm.autonotebook import tqdm
+
 
 # Set Seaborn theme
 sns.set_theme(style="darkgrid")
@@ -235,7 +243,8 @@ def run_epoch(model, optimizer, data_loader, loss_func, device, results, score_f
     
     return end - start  # Return time spent on epoch
 
-    
+
+
 def train_network(model, loss_func, train_loader, val_loader=None, test_loader=None, score_funcs=None, 
                   epochs=50, device="cpu", checkpoint_file=None, lr_schedule=None, optimizer=None, 
                   disable_tqdm=False, resume_file=None, resume_checkpoint=False, 
@@ -331,59 +340,68 @@ def train_network(model, loss_func, train_loader, val_loader=None, test_loader=N
     model.to(device)
     best_metric = float('inf') if early_stop_crit == "min" else -float('inf')
     no_improvement = 0
-    for epoch in tqdm(range(start_epoch, start_epoch + epochs), desc="Epoch", disable=disable_tqdm):
-        model.train()
-        total_train_time += run_epoch(model, optimizer, train_loader, loss_func, device, results, score_funcs, "train", grad_clip=grad_clip, lr_schedule=lr_schedule, scheduler_step_per_batch=scheduler_step_per_batch)
-        results["epoch"].append(epoch)
-        results["total time"].append(total_train_time)
 
-        if val_loader:
-            model.eval()
-            with torch.no_grad():
-                run_epoch(model, optimizer, val_loader, loss_func, device, results, score_funcs, "val")
+    with tqdm(total=epochs, desc="Epoch", disable=disable_tqdm) as pbar:
+        for epoch in range(start_epoch, start_epoch + epochs):
+            model.train()
+            total_train_time += run_epoch(model, optimizer, train_loader, loss_func, device, results, score_funcs, 
+                                        prefix = "train", desc="Training Batch", grad_clip=grad_clip, 
+                                        lr_schedule=lr_schedule, scheduler_step_per_batch=scheduler_step_per_batch)
+            results["epoch"].append(epoch)
+            results["total time"].append(total_train_time)
+            pbar.set_postfix(train_loss=results["train loss"][-1])
+            pbar.update(1)
 
-                # Early stopping with specified metric if provided
-                if early_stop_metric:
-                    monitor_value = results[f"val {early_stop_metric}"][-1] if early_stop_metric != "loss" else results["val loss"][-1]
-                    if early_stop_op(monitor_value, best_metric) == monitor_value:
-                        best_metric = monitor_value
-                        no_improvement = 0
-                        if checkpoint_file:
-                            save_checkpoint(epoch, model, optimizer, results, checkpoint_file, lr_schedule)
+            if val_loader:
+                model.eval()
+                with torch.no_grad():
+                    run_epoch(model, optimizer, val_loader, loss_func, device, results, score_funcs, 
+                            prefix="val", desc="Validation Batch")
+                    pbar.set_postfix(train_loss=results["train loss"][-1],val_loss=results["val loss"][-1])
+
+                    # Early stopping with specified metric if provided
+                    if early_stop_metric:
+                        monitor_value = results[f"val {early_stop_metric}"][-1] if early_stop_metric != "loss" else results["val loss"][-1]
+                        if early_stop_op(monitor_value, best_metric) == monitor_value:
+                            best_metric = monitor_value
+                            no_improvement = 0
+                            if checkpoint_file:
+                                save_checkpoint(epoch, model, optimizer, results, checkpoint_file, lr_schedule)
+                        else:
+                            no_improvement += 1
+                            if no_improvement >= patience:
+                                print(f"Early stopping at epoch {epoch}")
+                                break
+
+            if lr_schedule:
+                # Record the learning rate after stepping
+                results["lr"].append(optimizer.param_groups[0]['lr'])
+                if not scheduler_step_per_batch:
+                    if isinstance(lr_schedule, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                        lr_schedule.step(results["val loss"][-1])
+                    elif _scheduler_accepts_epoch(lr_schedule):
+                        lr_schedule.step(epoch=epoch)
                     else:
-                        no_improvement += 1
-                        if no_improvement >= patience:
-                            print(f"Early stopping at epoch {epoch}")
-                            break
+                        lr_schedule.step()
 
-        if lr_schedule:
-            # Record the learning rate after stepping
-            results["lr"].append(optimizer.param_groups[0]['lr'])
-            if not scheduler_step_per_batch:
-                if isinstance(lr_schedule, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                    lr_schedule.step(results["val loss"][-1])
-                elif _scheduler_accepts_epoch(lr_schedule):
-                    lr_schedule.step(epoch=epoch)
-                else:
-                    lr_schedule.step()
+            if test_loader:
+                model.eval()
+                with torch.no_grad():
+                    run_epoch(model, optimizer, test_loader, loss_func, device, results, score_funcs, 
+                            prefix="test", desc="test")
 
-        if test_loader:
-            model.eval()
-            with torch.no_grad():
-                run_epoch(model, optimizer, test_loader, loss_func, device, results, score_funcs, "test")
+            if checkpoint_file and early_stop_metric is None:
+                save_checkpoint(epoch, model, optimizer, results, checkpoint_file, lr_schedule)
 
-        if checkpoint_file and early_stop_metric is None:
-            save_checkpoint(epoch, model, optimizer, results, checkpoint_file, lr_schedule)
-
-        if disable_tqdm:
-            # Clear the previous output
-            clear_output(wait=True)
-            
-            # Display the current epoch
-            print(f"Completed Epoch: {epoch + 1}/{epochs}")
-            
-            # Display the last 5 rows of the results DataFrame
-            display(pd.DataFrame(results).tail(5))
+            if disable_tqdm:
+                # Clear the previous output
+                clear_output(wait=True)
+                
+                # Display the current epoch
+                print(f"Completed Epoch: {epoch + 1}/{epochs}")
+                
+                # Display the last 5 rows of the results DataFrame
+                display(pd.DataFrame(results).tail(5))
 
     if del_opt:
         del optimizer
@@ -466,7 +484,7 @@ def train_simple_network(model, loss_func, train_loader, test_loader=None, score
         
 def load_checkpoint(model, optimizer, lr_schedule, resume_file, device):
     """Load model, optimizer, scheduler, and results from a checkpoint file."""
-    checkpoint = torch.load(resume_file)
+    checkpoint = torch.load(resume_file, weights_only=False)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.to(device)
     
