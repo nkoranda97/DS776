@@ -249,8 +249,6 @@ def run_epoch(model, optimizer, data_loader, loss_func, device, results, score_f
     
     return end - start  # Return time spent on epoch
 
-
-
 def train_network(model, loss_func, train_loader, val_loader=None, test_loader=None, score_funcs=None, 
                   epochs=50, device="cpu", checkpoint_file=None, lr_schedule=None, optimizer=None, 
                   disable_tqdm=False, resume_file=None, resume_checkpoint=False, 

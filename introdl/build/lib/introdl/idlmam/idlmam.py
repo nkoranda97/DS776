@@ -249,7 +249,192 @@ def run_epoch(model, optimizer, data_loader, loss_func, device, results, score_f
     
     return end - start  # Return time spent on epoch
 
+'''
+def train_network(model, loss_func, train_loader, val_loader=None, test_loader=None, score_funcs=None,
+                  epochs=50, frozen_epochs=0, device="cpu", checkpoint_file=None, lr_schedule=None, optimizer=None,
+                  disable_tqdm=False, resume_file=None, resume_checkpoint=False,
+                  early_stop_metric=None, early_stop_crit="min", patience=4, grad_clip=None,
+                  scheduler_step_per_batch=False):
+    """
+    Train simple neural networks with support for frozen epochs.
 
+    Additional Args:
+        frozen_epochs (int, optional): Number of epochs to freeze all but the last layer group. Default is 0.
+    """
+    if score_funcs is None:
+        score_funcs = {}
+
+    if early_stop_metric and early_stop_metric != "loss" and early_stop_metric not in score_funcs:
+        raise ValueError(f"Early stop metric '{early_stop_metric}' must be 'loss' or one of the provided score functions.")
+
+    if early_stop_crit not in ["min", "max"]:
+        raise ValueError("early_stop_crit should be 'min' or 'max'")
+    early_stop_op = min if early_stop_crit == "min" else max
+
+    # Prepare tracking results
+    to_track = ["epoch", "total time", "train loss"]
+    if val_loader is not None:
+        to_track.append("val loss")
+    if test_loader is not None:
+        to_track.append("test loss")
+    for eval_score in score_funcs:
+        to_track.append("train " + eval_score)
+        if val_loader is not None:
+            to_track.append("val " + eval_score)
+        if test_loader is not None:
+            to_track.append("test " + eval_score)
+    if lr_schedule is not None:
+        to_track.append("lr")
+
+    total_train_time = 0
+    start_epoch = 0
+    results = {item: [] for item in to_track}
+
+    # Resume from checkpoint if specified
+    if resume_checkpoint and resume_file is None and checkpoint_file and os.path.exists(checkpoint_file):
+        resume_file = checkpoint_file
+
+    if resume_file is not None:
+        start_epoch, total_train_time, results = load_checkpoint(model, optimizer, lr_schedule, resume_file, device)
+
+    # Define optimizer if not provided
+    if optimizer is None:
+        optimizer = torch.optim.AdamW(model.parameters())
+        del_opt = True
+    else:
+        del_opt = False
+
+    model.to(device)
+    best_metric = float('inf') if early_stop_crit == "min" else -float('inf')
+    no_improvement = 0
+
+    # Define freezing and unfreezing logic
+    def freeze_layers():
+        for param in model.parameters():
+            param.requires_grad = False
+        for param in list(model.children())[-1].parameters():
+            param.requires_grad = True
+        optimizer.param_groups.clear()
+        optimizer.add_param_group({"params": filter(lambda p: p.requires_grad, model.parameters())})
+
+    def unfreeze_layers():
+        for param in model.parameters():
+            param.requires_grad = True
+        optimizer.param_groups.clear()
+        optimizer.add_param_group({"params": model.parameters()})
+
+    with tqdm(total=epochs, desc="Epoch", disable=disable_tqdm, leave=True, dynamic_ncols=True) as pbar:
+        for epoch in range(start_epoch, start_epoch + epochs):
+            # Freeze layers if in frozen phase
+            if frozen_epochs > 0 and epoch < frozen_epochs:
+                freeze_layers()
+            elif epoch == frozen_epochs:
+                unfreeze_layers()
+
+            model.train()
+            total_train_time += run_epoch(model, optimizer, train_loader, loss_func, device, results, score_funcs,
+                                          prefix="train", desc="Training Batch", grad_clip=grad_clip,
+                                          lr_schedule=lr_schedule, scheduler_step_per_batch=scheduler_step_per_batch)
+            results["epoch"].append(epoch)
+            results["total time"].append(total_train_time)
+            pbar.set_postfix(train_loss=results["train loss"][-1])
+
+            if val_loader:
+                model.eval()
+                with torch.no_grad():
+                    run_epoch(model, optimizer, val_loader, loss_func, device, results, score_funcs,
+                              prefix="val", desc="Validation Batch")
+                    pbar.set_postfix(train_loss=results["train loss"][-1], val_loss=results["val loss"][-1])
+
+                    # Early stopping logic
+                    if early_stop_metric:
+                        monitor_value = results[f"val {early_stop_metric}"][-1] if early_stop_metric != "loss" else results["val loss"][-1]
+                        if early_stop_op(monitor_value, best_metric) == monitor_value:
+                            best_metric = monitor_value
+                            no_improvement = 0
+                            if checkpoint_file:
+                                save_checkpoint(epoch, model, optimizer, results, checkpoint_file, lr_schedule)
+                        else:
+                            no_improvement += 1
+                            if no_improvement >= patience:
+                                print(f"Early stopping at epoch {epoch}")
+                                break
+
+            if lr_schedule:
+                # Record learning rate
+                results["lr"].append(optimizer.param_groups[0]['lr'])
+                if not scheduler_step_per_batch:
+                    if isinstance(lr_schedule, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                        lr_schedule.step(results["val loss"][-1])
+                    elif _scheduler_accepts_epoch(lr_schedule):
+                        lr_schedule.step(epoch=epoch)
+                    else:
+                        lr_schedule.step()
+
+            if test_loader:
+                model.eval()
+                with torch.no_grad():
+                    run_epoch(model, optimizer, test_loader, loss_func, device, results, score_funcs,
+                              prefix="test", desc="Testing Batch")
+                    if val_loader:
+                        pbar.set_postfix(train_loss=results["train loss"][-1], val_loss=results["val loss"][-1])
+                    else:
+                        pbar.set_postfix(train_loss=results["train loss"][-1], test_loss=results["test loss"][-1])
+
+            if checkpoint_file and early_stop_metric is None:
+                save_checkpoint(epoch, model, optimizer, results, checkpoint_file, lr_schedule)
+
+            if disable_tqdm:
+                clear_output(wait=True)
+                print(f"Completed Epoch: {epoch + 1}/{epochs}")
+                display(pd.DataFrame(results).tail(5))
+
+            pbar.update(1)
+
+    if del_opt:
+        del optimizer
+
+    return pd.DataFrame.from_dict(results)
+'''
+    
+def make_optimizer_discriminative(optimizer, model, upper_lr, factor, **kwargs):
+    """
+    Modify an existing optimizer to use discriminative learning rates with logarithmic interpolation.
+
+    Args:
+        optimizer: An instantiated PyTorch optimizer.
+        model: PyTorch model whose parameters are grouped for learning rates.
+        upper_lr: The upper bound learning rate (for the last layer group).
+        factor: The factor to calculate the lower bound learning rate as `upper_lr / factor`.
+        **kwargs: Additional arguments to reconfigure the optimizer.
+
+    Returns:
+        Modified optimizer with discriminative learning rates.
+    """
+    # Calculate the lower learning rate
+    lower_lr = upper_lr / factor
+
+    # Get all layers or groups of layers in the model
+    layers = list(model.children())  # Each child represents a logical group in most models
+
+    # Calculate the number of groups
+    num_layers = len(layers)
+    if num_layers < 2:
+        raise ValueError("Model must have at least two layers or groups for discriminative learning rates.")
+
+    # Logarithmic interpolation of learning rates
+    lrs = np.logspace(np.log10(lower_lr), np.log10(upper_lr), num=num_layers)
+
+    # Clear the existing parameter groups
+    optimizer.param_groups.clear()
+
+    # Add new parameter groups with discriminative learning rates
+    for layer, lr in zip(layers, lrs):
+        params = list(layer.parameters())
+        if len(params) > 0:  # Ensure the layer has parameters
+            optimizer.add_param_group({"params": params, "lr": lr, **kwargs})
+
+    return optimizer
 
 def train_network(model, loss_func, train_loader, val_loader=None, test_loader=None, score_funcs=None, 
                   epochs=50, device="cpu", checkpoint_file=None, lr_schedule=None, optimizer=None, 

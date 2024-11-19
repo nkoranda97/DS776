@@ -118,13 +118,15 @@ def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label
         canvas.show()  # Open in a separate window if not in a notebook
 '''
 
-def preprocess_image(image: Union[torch.Tensor, Image.Image, np.ndarray], cmap: Optional[str] = None) -> Image.Image:
+def image_to_PIL(image, cmap=None, mean=None, std=None):
     """
     Preprocess an image to numpy RGB format.
     Parameters:
-    image (Union[torch.Tensor, Image.Image, np.ndarray]): The input image to preprocess. It can be a PyTorch tensor, 
-                                                            a PIL image, or a numpy array.
-    cmap (Optional[str]): The colormap to apply if the image is grayscale. Default is None.
+    image: The input image to preprocess. It can be a PyTorch tensor, a PIL image, or a numpy array.
+    cmap: The colormap to apply if the image is grayscale. Default is None.
+    mean: The mean values for each channel for denormalization. Default is None.
+    std: The standard deviation values for each channel for denormalization. Default is None.
+    
     Returns:
     Image.Image: The preprocessed image in RGB format as a PIL image.
     Raises:
@@ -162,6 +164,12 @@ def preprocess_image(image: Union[torch.Tensor, Image.Image, np.ndarray], cmap: 
     elif is_grayscale:  # Convert grayscale to RGB
         image = np.stack([image] * 3, axis=-1)
 
+    # Denormalize if mean and std are provided
+    if mean is not None and std is not None:
+        mean = np.array(mean).reshape(1, 1, -1)
+        std = np.array(std).reshape(1, 1, -1)
+        image = image * std + mean
+
     # Ensure image is in uint8 format
     if image.dtype != np.uint8:
         image = (image * 255).astype(np.uint8)
@@ -169,7 +177,8 @@ def preprocess_image(image: Union[torch.Tensor, Image.Image, np.ndarray], cmap: 
     return Image.fromarray(image)
 
 def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label_height=12, 
-                      class_labels=None, indices=None, show_label=False, dark_mode=False, cmap=None):
+                      class_labels=None, indices=None, show_label=False, dark_mode=False, cmap=None,
+                      mean=None, std=None):
     """
     Creates a grid of images from a given dataset.
 
@@ -185,6 +194,8 @@ def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label
         show_label (bool, optional): Whether to show the label below each image. Defaults to False.
         dark_mode (bool, optional): Whether to use a dark mode background. Defaults to False.
         cmap (str, optional): Colormap to apply to grayscale images. Defaults to None.
+        mean (tuple, optional): Mean values for each channel for denormalization. Defaults to None.
+        std (tuple, optional): Standard deviation values for each channel for denormalization. Defaults to None.
 
     Returns:
         None
@@ -214,7 +225,7 @@ def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label
     # Place each image and label on the canvas
     for idx, data_idx in enumerate(indices):
         image, label = dataset[data_idx]
-        image = preprocess_image(image, cmap=cmap)  # Preprocess the image
+        image = image_to_PIL(image, cmap=cmap, mean=mean, std=std)  # Preprocess the image
         image = image.resize(img_size, Image.Resampling.LANCZOS)
 
         row, col = divmod(idx, ncols)
@@ -236,7 +247,62 @@ def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label
     else:
         canvas.show()  # Open in a separate window if not in a notebook
 
+# create a new function called plot_random_transformed_images that takes in a dataset, number of images to randomly sample, and the number of tranformed images
+# to display.  each row should represent one image and the columns should represent various versions of the image.  we are assuming that the dataset is a torchvision 
+# dataset with transforms included that produce the desired transformations and outputs tensors.  use image_to_PIL to convert the tensor to a PIL image for display.
+def plot_transformed_images(dataset, num_images=5, num_transformed=5, img_size=(64, 64), padding=2, dark_mode=False, cmap=None, mean=None, std=None):
+    """
+    Plots a grid of randomly sampled images from the dataset along with their transformed versions.
 
+    Args:
+        dataset (torch.utils.data.Dataset): The dataset containing the images and transforms.
+        num_images (int): The number of images to randomly sample.
+        num_transformed (int): The number of transformed versions to display for each image.
+        img_size (tuple, optional): The size of each image in the grid. Defaults to (64, 64).
+        padding (int, optional): The padding between images in the grid. Defaults to 2.
+        dark_mode (bool, optional): Whether to use a dark mode background. Defaults to False.
+        cmap (str, optional): Colormap to apply to grayscale images. Defaults to None.
+        mean (tuple, optional): Mean values for each channel for denormalization. Defaults to None.
+        std (tuple, optional): Standard deviation values for each channel for denormalization. Defaults to None.
+
+    Returns:
+        None
+    """
+    indices = np.random.choice(len(dataset), num_images, replace=False)
+
+    # Calculate canvas size
+    img_width, img_height = img_size
+    canvas_width = (num_transformed + 1) * img_width + num_transformed * padding
+    canvas_height = num_images * img_height + (num_images - 1) * padding
+
+    # Create blank canvas with white or black background
+    bg_color = (0, 0, 0) if dark_mode else (255, 255, 255)
+    canvas = Image.new("RGB", (canvas_width, canvas_height), bg_color)
+    draw = ImageDraw.Draw(canvas)
+
+    for i, idx in enumerate(indices):
+        original_image, _ = dataset[idx]
+        original_image = image_to_PIL(original_image, cmap=cmap, mean=mean, std=std)
+        original_image = original_image.resize(img_size, Image.Resampling.LANCZOS)
+
+        x = 0
+        y = i * (img_height + padding)
+        canvas.paste(original_image, (x, y))
+
+        for j in range(1, num_transformed + 1):
+            transformed_image, _ = dataset[idx]
+            transformed_image = image_to_PIL(transformed_image, cmap=cmap, mean=mean, std=std)
+            transformed_image = transformed_image.resize(img_size, Image.Resampling.LANCZOS)
+
+            x = j * (img_width + padding)
+            canvas.paste(transformed_image, (x, y))
+
+    # Display the final grid image
+    if in_notebook():
+        display(canvas)  # Display inline in Jupyter notebook
+    else:
+        canvas.show()  # Open in a separate window if not in a notebook
+'''
 def show_image_grid(nrows, ncols, dataset, class_labels=None, indices=None, show_label=False, fig_scale=2, dark_mode=False, show_preds=False, preds=None, cmap='Greys'):
     """
     Show a grid of images with optional ground truth labels and predicted labels.
@@ -325,7 +391,7 @@ def show_image_grid(nrows, ncols, dataset, class_labels=None, indices=None, show
         plt.tight_layout(pad=0.5)  # Minimal space when labels are absent
     
     plt.show()
-
+'''
 
 
 def visualize2DSoftmax(X, y, model, title=None):
