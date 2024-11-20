@@ -177,7 +177,7 @@ def image_to_PIL(image, cmap=None, mean=None, std=None):
     return Image.fromarray(image)
 
 def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label_height=12, 
-                      class_labels=None, indices=None, show_label=False, dark_mode=False, cmap=None,
+                      class_labels=None, indices=None, show_labels=False, dark_mode=False, cmap=None,
                       mean=None, std=None):
     """
     Creates a grid of images from a given dataset.
@@ -191,7 +191,7 @@ def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label
         label_height (int, optional): The height of the label area below each image. Defaults to 12.
         class_labels (list, optional): The list of class labels. If None, the dataset's classes will be used. Defaults to None.
         indices (numpy.ndarray, optional): The indices of the images to include in the grid. If None, random indices will be chosen. Defaults to None.
-        show_label (bool, optional): Whether to show the label below each image. Defaults to False.
+        show_labels (bool, optional): Whether to show the label below each image. Defaults to False.
         dark_mode (bool, optional): Whether to use a dark mode background. Defaults to False.
         cmap (str, optional): Colormap to apply to grayscale images. Defaults to None.
         mean (tuple, optional): Mean values for each channel for denormalization. Defaults to None.
@@ -206,7 +206,7 @@ def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label
     # Calculate canvas size
     img_width, img_height = img_size
     canvas_width = ncols * img_width + (ncols - 1) * padding
-    canvas_height = nrows * (img_height + (label_height if show_label else 0)) + (nrows - 1) * padding
+    canvas_height = nrows * (img_height + (label_height if show_labels else 0)) + (nrows - 1) * padding
 
     # Create blank canvas with white or black background
     bg_color = (0, 0, 0) if dark_mode else (255, 255, 255)
@@ -220,7 +220,7 @@ def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label
         font = ImageFont.load_default()
 
     if indices is None:
-        indices = np.random.choice(len(dataset), nrows * ncols, replace=False)
+        indices = np.random.choice(len(dataset), min(len(dataset), nrows * ncols), replace=False)
 
     # Place each image and label on the canvas
     for idx, data_idx in enumerate(indices):
@@ -230,12 +230,12 @@ def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label
 
         row, col = divmod(idx, ncols)
         x = col * (img_width + padding)
-        y = row * (img_height + (label_height if show_label else 0) + padding)
+        y = row * (img_height + (label_height if show_labels else 0) + padding)
 
-        canvas.paste(image, (x, y + (label_height if show_label else 0)))
+        canvas.paste(image, (x, y + (label_height if show_labels else 0)))
 
-        if show_label:
-            label_text = class_labels[label] if class_labels else f'Label: {label}'
+        if show_labels:
+            label_text = class_labels[label] if class_labels else f'{label}'
             text_color = (255, 255, 255) if dark_mode else (0, 0, 0)
             text_x = x + img_width // 2
             text_y = y + label_height // 2

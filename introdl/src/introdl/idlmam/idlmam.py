@@ -355,6 +355,10 @@ def train_network(model, loss_func, train_loader, val_loader=None, test_loader=N
             results["total time"].append(total_train_time)
             pbar.set_postfix(train_loss=results["train loss"][-1])
 
+            if lr_schedule:
+                # Record the learning rate after stepping before checking for early stopping
+                results["lr"].append(optimizer.param_groups[0]['lr'])
+
             if val_loader:
                 model.eval()
                 with torch.no_grad():
@@ -377,8 +381,6 @@ def train_network(model, loss_func, train_loader, val_loader=None, test_loader=N
                                 break
 
             if lr_schedule:
-                # Record the learning rate after stepping
-                results["lr"].append(optimizer.param_groups[0]['lr'])
                 if not scheduler_step_per_batch:
                     if isinstance(lr_schedule, torch.optim.lr_scheduler.ReduceLROnPlateau):
                         lr_schedule.step(results["val loss"][-1])
@@ -386,6 +388,7 @@ def train_network(model, loss_func, train_loader, val_loader=None, test_loader=N
                         lr_schedule.step(epoch=epoch)
                     else:
                         lr_schedule.step()
+
 
             if test_loader:
                 model.eval()
