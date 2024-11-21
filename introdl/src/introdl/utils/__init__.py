@@ -4,6 +4,7 @@ from .utils import load_results
 from .utils import load_model
 from .utils import summarizer
 from .utils import create_CIFAR10_loaders
+from .utils import classifier_predict
 
 __all__ = [
     "detect_jupyter_environment",
@@ -11,5 +12,6 @@ __all__ = [
     "load_results",
     "load_model",
     "summarizer",
-    "create_CIFAR10_loaders"
+    "create_CIFAR10_loaders",
+    "classifer_predict"
 ]

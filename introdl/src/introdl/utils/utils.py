@@ -90,7 +90,7 @@ def summarizer(model, input_size, device=torch.device('cpu'), col_width=20):
     print(summary(model, input_size=input_size, col_width=col_width, col_names=["input_size", "output_size", "num_params"]))
 '''
 
-def summarizer(model, input_size, device=torch.device('cpu'), col_width=20, verbose=False):
+def summarizer(model, input_size, device=torch.device('cpu'), col_width=20, verbose=False, varnames = True, **kwargs):
     """
     Summarizes the given model by displaying the input size, output size, and number of parameters.
 
@@ -100,10 +100,13 @@ def summarizer(model, input_size, device=torch.device('cpu'), col_width=20, verb
     - device (torch.device, optional): The device to summarize the model on. Defaults to 'cpu'.
     - col_width (int, optional): The width of each column in the summary table. Defaults to 20.
     - verbose (bool, optional): If True, display the full error stack trace; otherwise, show only a simplified error message. Defaults to False.
+    - **kwargs: Additional keyword arguments to pass to the summary function.
     """
     model = model.to(device)
     try:
-        print(summary(model, input_size=input_size, col_width=col_width, col_names=["input_size", "output_size", "num_params"]))
+        colnames = ["input_size", "output_size", "num_params"]
+        rowsettings = ["var_names"] if varnames else ["depth"]
+        print(summary(model, input_size=input_size, col_width=col_width, row_settings=rowsettings, col_names=colnames, **kwargs))
     except RuntimeError as e:
         if verbose:
             # Print the full stack trace and original error message
@@ -115,6 +118,61 @@ def summarizer(model, input_size, device=torch.device('cpu'), col_width=20, verb
             error_message = error_message.replace("Failed to run torchinfo.", "Failed to run all model layers.")
             error_message += " Run again with verbose=True to see stack trace."
             print(f"Error: {error_message}")
+
+def classifier_predict(dataset, model, device, batch_size=32, return_labels=False):
+    """
+    Collects predictions from a PyTorch dataset using a classification model.
+    Optionally returns ground truth labels.
+
+    Assumptions:
+        - The model outputs logits for each class (not probabilities or class indices).
+        - The dataset returns tuples of (inputs, labels) where labels are integers representing class indices.
+
+    Parameters:
+        dataset (torch.utils.data.Dataset): The dataset to evaluate.
+        model (torch.nn.Module): The classification model. Assumes outputs are logits for each class.
+        device (torch.device): The device to run the evaluation on.
+        return_labels (bool): Whether to return ground truth labels along with predictions.
+        batch_size (int): The batch size for the DataLoader.
+
+    Returns:
+        list: Predicted labels (class indices).
+        list (optional): Ground truth labels (if return_labels=True).
+    """
+    # Create a DataLoader for the dataset
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    
+    # Set the model to evaluation mode
+    model.eval()
+    model.to(device)
+    
+    # Initialize lists to store predictions and ground truth labels
+    predictions = []
+    ground_truth = [] if return_labels else None
+
+    # Turn off gradient calculation for evaluation
+    with torch.no_grad():
+        for inputs, labels in dataloader:
+            # Move inputs and labels to the specified device
+            inputs = inputs.to(device)
+            if return_labels:
+                labels = labels.to(device)
+
+            # Forward pass through the model
+            logits = model(inputs)
+
+            # Get predicted labels (the class with the highest logit)
+            preds = torch.argmax(logits, dim=1)
+
+            # Append predictions to the list
+            predictions.extend(preds.cpu().tolist())
+            # Append ground truth labels if requested
+            if return_labels:
+                ground_truth.extend(labels.cpu().tolist())
+
+    if return_labels:
+        return predictions, ground_truth
+    return predictions
 
 
 '''

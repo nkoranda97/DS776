@@ -9,6 +9,7 @@ from .visul import interactive_mnist_prediction
 from .visul import plot_activation_functions
 from .visul import image_to_PIL
 from .visul import plot_transformed_images
+from .visul import evaluate_classifier
 
 __all__ = [
     "create_image_grid",
@@ -21,5 +22,6 @@ __all__ = [
     "interactive_mnist_prediction",
     "plot_activation_functions",
     "image_to_PIL",
-    "plot_transformed_images"
+    "plot_transformed_images",
+    "evaluate_classifier"
 ]

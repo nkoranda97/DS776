@@ -19,6 +19,10 @@ from scipy.special import erf
 from PIL import Image, ImageOps, ImageDraw, ImageFont
 import torchvision.transforms as transforms
 from typing import Union, Optional
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import classification_report
+
+from introdl.utils.utils import classifier_predict
 
 ########################################################
 # Visualization Related Functions
@@ -178,6 +182,88 @@ def image_to_PIL(image, cmap=None, mean=None, std=None):
 
 def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label_height=12, 
                       class_labels=None, indices=None, show_labels=False, dark_mode=False, cmap=None,
+                      mean=None, std=None, pad=False):
+    """
+    Creates a grid of images from a given dataset.
+
+    Args:
+        dataset (torch.utils.data.Dataset): The dataset containing the images and labels.
+        nrows (int): The maximum number of rows in the grid.
+        ncols (int): The number of columns in the grid.
+        img_size (tuple, optional): The size of each image in the grid. Defaults to (64, 64).
+        padding (int, optional): The padding between images in the grid. Defaults to 2.
+        label_height (int, optional): The height of the label area below each image. Defaults to 12.
+        class_labels (list, optional): The list of class labels. If None, the dataset's classes will be used. Defaults to None.
+        indices (numpy.ndarray, optional): The indices of the images to include in the grid. If None, random indices will be chosen. Defaults to None.
+        show_labels (bool, optional): Whether to show the label below each image. Defaults to False.
+        dark_mode (bool, optional): Whether to use a dark mode background. Defaults to False.
+        cmap (str, optional): Colormap to apply to grayscale images. Defaults to None.
+        mean (tuple, optional): Mean values for each channel for denormalization. Defaults to None.
+        std (tuple, optional): Standard deviation values for each channel for denormalization. Defaults to None.
+        pad (bool, optional): Whether to pad the images to maintain aspect ratio. Defaults to False.
+
+    Returns:
+        None
+    """
+    if class_labels is None and hasattr(dataset, 'classes'):
+        class_labels = dataset.classes
+
+    if indices is None:
+        indices = np.random.choice(len(dataset), min(len(dataset), nrows * ncols), replace=False)
+
+    # Calculate the actual number of rows needed
+    actual_nrows = (len(indices) + ncols - 1) // ncols
+    actual_nrows = min(actual_nrows, nrows)
+
+    # Calculate canvas size
+    img_width, img_height = img_size
+    canvas_width = ncols * img_width + (ncols - 1) * padding
+    canvas_height = actual_nrows * (img_height + (label_height if show_labels else 0)) + (actual_nrows - 1) * padding
+
+    # Create blank canvas with white or black background
+    bg_color = (0, 0, 0) if dark_mode else (255, 255, 255)
+    canvas = Image.new("RGB", (canvas_width, canvas_height), bg_color)
+    draw = ImageDraw.Draw(canvas)
+
+    # Default font for labels
+    try:
+        font = ImageFont.truetype("arial.ttf", 14)
+    except IOError:
+        font = ImageFont.load_default()
+
+    # Place each image and label on the canvas
+    for idx, data_idx in enumerate(indices):
+        image, label = dataset[data_idx]
+        image = image_to_PIL(image, cmap=cmap, mean=mean, std=std)  # Preprocess the image
+
+        if pad:
+            image = ImageOps.pad(image, img_size, color=bg_color)
+        else:
+            image = image.resize(img_size, Image.Resampling.LANCZOS)
+
+        row, col = divmod(idx, ncols)
+        x = col * (img_width + padding)
+        y = row * (img_height + (label_height if show_labels else 0) + padding)
+
+        canvas.paste(image, (x, y + (label_height if show_labels else 0)))
+
+        if show_labels:
+            label_text = class_labels[label] if class_labels else f'{label}'
+            text_color = (255, 255, 255) if dark_mode else (0, 0, 0)
+            text_x = x + img_width // 2
+            text_y = y + label_height // 2
+            draw.text((text_x, text_y), label_text, fill=text_color, font=font, anchor="mm")
+
+    # Display the final grid image
+    if in_notebook():
+        display(canvas)  # Display inline in Jupyter notebook
+    else:
+        canvas.show()  # Open in a separate window if not in a notebook
+
+
+'''
+def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label_height=12, 
+                      class_labels=None, indices=None, show_labels=False, dark_mode=False, cmap=None,
                       mean=None, std=None):
     """
     Creates a grid of images from a given dataset.
@@ -246,6 +332,7 @@ def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label
         display(canvas)  # Display inline in Jupyter notebook
     else:
         canvas.show()  # Open in a separate window if not in a notebook
+'''
 
 # create a new function called plot_random_transformed_images that takes in a dataset, number of images to randomly sample, and the number of tranformed images
 # to display.  each row should represent one image and the columns should represent various versions of the image.  we are assuming that the dataset is a torchvision 
@@ -302,6 +389,80 @@ def plot_transformed_images(dataset, num_images=5, num_transformed=5, img_size=(
         display(canvas)  # Display inline in Jupyter notebook
     else:
         canvas.show()  # Open in a separate window if not in a notebook
+
+
+def evaluate_classifier(model, dataset, device, display_confusion=True, img_size=(5, 5), batch_size=32):
+    """
+    Evaluates the model on the given dataset, plots the confusion matrix if specified,
+    and returns the confusion matrix, classification report, and misclassified dataset.
+
+    Parameters:
+        model (torch.nn.Module): The model to evaluate.
+        dataset (torch.utils.data.Dataset): The dataset to evaluate on.
+        device (torch.device): The device to run the evaluation on.
+        display_confusion (bool): Whether to display the confusion matrix. Defaults to True.
+        img_size (tuple): The size of the confusion matrix plot. Defaults to (5, 5).
+
+    Returns:
+        tuple: (confusion matrix, classification report, misclassified dataset)
+    """
+    # Get predictions and labels using the classifier_predict function
+    pred_labels, labels = classifier_predict(dataset, model, device, return_labels=True, batch_size=batch_size)
+
+    # Collect misclassified indices
+    misclassified_indices = [i for i, (true, pred) in enumerate(zip(labels, pred_labels)) if true != pred]
+
+    print(f'The dataset has {len(dataset)} samples.')
+    print(f'The model misclassified {len(misclassified_indices)} samples.')
+
+    # Check to see if classes are available in dataset.classes or dataset.dataset.classes
+    if hasattr(dataset, 'classes'):
+        classes = dataset.classes
+    elif hasattr(dataset.dataset, 'classes'):
+        classes = dataset.dataset.classes
+    else:
+        classes = None
+
+    # Create a list of strings in the form "truth / predict" for each misclassified index
+    misclassified_labels = []
+    for idx in misclassified_indices:
+        true_label = classes[labels[idx]] if classes else labels[idx]
+        pred_label = classes[pred_labels[idx]] if classes else pred_labels[idx]
+        misclassified_labels.append(f'{true_label} / {pred_label}')
+
+    # Create a new dataset containing only the misclassified images
+    class MisclassifiedDataset(torch.utils.data.Dataset):
+        def __init__(self, dataset, misclassified_indices, misclassified_labels):
+            self.dataset = dataset
+            self.misclassified_indices = misclassified_indices
+            self.misclassified_labels = misclassified_labels
+
+        def __len__(self):
+            return len(self.misclassified_indices)
+
+        def __getitem__(self, idx):
+            original_idx = self.misclassified_indices[idx]
+            image, _ = self.dataset[original_idx]
+            label = self.misclassified_labels[idx]
+            return image, label
+
+    misclassified_dataset = MisclassifiedDataset(dataset, misclassified_indices, misclassified_labels)
+
+    # Compute the confusion matrix
+    confusion_mat = confusion_matrix(labels, pred_labels)
+
+    # Display the confusion matrix if specified
+    if display_confusion:
+        fig, ax = plt.subplots(figsize=img_size)
+        disp = ConfusionMatrixDisplay(confusion_mat, display_labels=classes if classes else None)
+        disp.plot(ax=ax)
+        plt.show()
+
+    # Generate the classification report
+    class_report = classification_report(labels, pred_labels, target_names=classes if classes else None)
+
+    return confusion_mat, class_report, misclassified_dataset
+
 '''
 def show_image_grid(nrows, ncols, dataset, class_labels=None, indices=None, show_label=False, fig_scale=2, dark_mode=False, show_preds=False, preds=None, cmap='Greys'):
     """
