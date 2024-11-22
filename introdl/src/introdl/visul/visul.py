@@ -189,7 +189,7 @@ def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label
     Args:
         dataset (torch.utils.data.Dataset): The dataset containing the images and labels.
         nrows (int): The maximum number of rows in the grid.
-        ncols (int): The number of columns in the grid.
+        ncols (int): The maximum number of columns in the grid.
         img_size (tuple, optional): The size of each image in the grid. Defaults to (64, 64).
         padding (int, optional): The padding between images in the grid. Defaults to 2.
         label_height (int, optional): The height of the label area below each image. Defaults to 12.
@@ -211,13 +211,14 @@ def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label
     if indices is None:
         indices = np.random.choice(len(dataset), min(len(dataset), nrows * ncols), replace=False)
 
-    # Calculate the actual number of rows needed
+    # Calculate the actual number of rows and columns needed
     actual_nrows = (len(indices) + ncols - 1) // ncols
     actual_nrows = min(actual_nrows, nrows)
+    actual_ncols = min(ncols, len(indices))
 
     # Calculate canvas size
     img_width, img_height = img_size
-    canvas_width = ncols * img_width + (ncols - 1) * padding
+    canvas_width = actual_ncols * img_width + (actual_ncols - 1) * padding
     canvas_height = actual_nrows * (img_height + (label_height if show_labels else 0)) + (actual_nrows - 1) * padding
 
     # Create blank canvas with white or black background
@@ -241,7 +242,7 @@ def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label
         else:
             image = image.resize(img_size, Image.Resampling.LANCZOS)
 
-        row, col = divmod(idx, ncols)
+        row, col = divmod(idx, actual_ncols)
         x = col * (img_width + padding)
         y = row * (img_height + (label_height if show_labels else 0) + padding)
 
