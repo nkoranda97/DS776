@@ -41,87 +41,6 @@ def in_notebook():
     except NameError:
         return False  # Not in a notebook environment
 
-'''
-def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label_height=12, 
-                      class_labels=None, indices=None, show_label=False, dark_mode=False, cmap=None):
-    """
-    Creates a grid of images from a given dataset.
-
-    Args:
-        dataset (torch.utils.data.Dataset): The dataset containing the images and labels.
-        nrows (int): The number of rows in the grid.
-        ncols (int): The number of columns in the grid.
-        img_size (tuple, optional): The size of each image in the grid. Defaults to (64, 64).
-        padding (int, optional): The padding between images in the grid. Defaults to 2.
-        label_height (int, optional): The height of the label area below each image. Defaults to 12.
-        class_labels (list, optional): The list of class labels. If None, the dataset's classes will be used. Defaults to None.
-        indices (numpy.ndarray, optional): The indices of the images to include in the grid. If None, random indices will be chosen. Defaults to None.
-        show_label (bool, optional): Whether to show the label below each image. Defaults to False.
-        dark_mode (bool, optional): Whether to use a dark mode background. Defaults to False.
-        cmap (str, optional): Colormap to apply to grayscale images. Defaults to None.
-
-    Returns:
-        None
-    """
-    if class_labels is None and hasattr(dataset, 'classes'):
-        class_labels = dataset.classes
-
-    # Calculate canvas size
-    img_width, img_height = img_size
-    canvas_width = ncols * img_width + (ncols - 1) * padding
-    canvas_height = nrows * (img_height + (label_height if show_label else 0)) + (nrows - 1) * padding
-
-    # Create blank canvas with white or black background
-    bg_color = (0, 0, 0) if dark_mode else (255, 255, 255)
-    canvas = Image.new("RGB", (canvas_width, canvas_height), bg_color)
-    draw = ImageDraw.Draw(canvas)
-
-    # Default font for labels
-    try:
-        font = ImageFont.truetype("arial.ttf", 14)
-    except IOError:
-        font = ImageFont.load_default()
-    
-    if indices is None:
-        indices = np.random.choice(len(dataset), nrows * ncols, replace=False)
-    
-    # Place each image and label on the canvas
-    for idx, data_idx in enumerate(indices):
-        image, label = dataset[data_idx]
-
-        if isinstance(image, torch.Tensor):
-            image = image.permute(1, 2, 0).numpy()
-            if image.shape[2] == 1:  # Grayscale image
-                image = np.squeeze(image, axis=2)
-                if cmap:
-                    image = plt.get_cmap(cmap)(image)[:, :, :3]  # Apply colormap and remove alpha channel
-                image = (image * 255).astype(np.uint8)
-            else:
-                image = (image * 255).astype(np.uint8)
-            image = Image.fromarray(image)
-
-        image = image.resize(img_size, Image.Resampling.LANCZOS)
-        
-        row, col = divmod(idx, ncols)
-        x = col * (img_width + padding)
-        y = row * (img_height + (label_height if show_label else 0) + padding)
-        
-        canvas.paste(image, (x, y + (label_height if show_label else 0)))
-        
-        if show_label:
-            label_text = class_labels[label] if class_labels else f'Label: {label}'
-            text_color = (255, 255, 255) if dark_mode else (0, 0, 0)
-            text_x = x + img_width // 2
-            text_y = y + label_height // 2
-            draw.text((text_x, text_y), label_text, fill=text_color, font=font, anchor="mm")
-
-    # Display the final grid image
-    if in_notebook():
-        display(canvas)  # Display inline in Jupyter notebook
-    else:
-        canvas.show()  # Open in a separate window if not in a notebook
-'''
-
 def image_to_PIL(image, cmap=None, mean=None, std=None):
     """
     Preprocess an image to numpy RGB format.
@@ -160,6 +79,15 @@ def image_to_PIL(image, cmap=None, mean=None, std=None):
     else:
         raise ValueError(f"Unexpected image shape: {image.shape}")
 
+    # Denormalize if mean and std are provided
+    if mean is not None and std is not None:
+        mean = np.array(mean).reshape(1, 1, -1)
+        std = np.array(std).reshape(1, 1, -1)
+        if is_grayscale:
+            mean = mean.squeeze(-1)
+            std = std.squeeze(-1)
+        image = image * std + mean
+
     # Apply colormap if grayscale
     if cmap and is_grayscale:
         normalized = (image - image.min()) / (image.max() - image.min() + 1e-8)
@@ -168,15 +96,11 @@ def image_to_PIL(image, cmap=None, mean=None, std=None):
     elif is_grayscale:  # Convert grayscale to RGB
         image = np.stack([image] * 3, axis=-1)
 
-    # Denormalize if mean and std are provided
-    if mean is not None and std is not None:
-        mean = np.array(mean).reshape(1, 1, -1)
-        std = np.array(std).reshape(1, 1, -1)
-        image = image * std + mean
-
     # Ensure image is in uint8 format
     if image.dtype != np.uint8:
+        print('converting to uint8')
         image = (image * 255).astype(np.uint8)
+        print(image)
 
     return Image.fromarray(image)
 
@@ -261,83 +185,6 @@ def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label
     else:
         canvas.show()  # Open in a separate window if not in a notebook
 
-
-'''
-def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label_height=12, 
-                      class_labels=None, indices=None, show_labels=False, dark_mode=False, cmap=None,
-                      mean=None, std=None):
-    """
-    Creates a grid of images from a given dataset.
-
-    Args:
-        dataset (torch.utils.data.Dataset): The dataset containing the images and labels.
-        nrows (int): The number of rows in the grid.
-        ncols (int): The number of columns in the grid.
-        img_size (tuple, optional): The size of each image in the grid. Defaults to (64, 64).
-        padding (int, optional): The padding between images in the grid. Defaults to 2.
-        label_height (int, optional): The height of the label area below each image. Defaults to 12.
-        class_labels (list, optional): The list of class labels. If None, the dataset's classes will be used. Defaults to None.
-        indices (numpy.ndarray, optional): The indices of the images to include in the grid. If None, random indices will be chosen. Defaults to None.
-        show_labels (bool, optional): Whether to show the label below each image. Defaults to False.
-        dark_mode (bool, optional): Whether to use a dark mode background. Defaults to False.
-        cmap (str, optional): Colormap to apply to grayscale images. Defaults to None.
-        mean (tuple, optional): Mean values for each channel for denormalization. Defaults to None.
-        std (tuple, optional): Standard deviation values for each channel for denormalization. Defaults to None.
-
-    Returns:
-        None
-    """
-    if class_labels is None and hasattr(dataset, 'classes'):
-        class_labels = dataset.classes
-
-    # Calculate canvas size
-    img_width, img_height = img_size
-    canvas_width = ncols * img_width + (ncols - 1) * padding
-    canvas_height = nrows * (img_height + (label_height if show_labels else 0)) + (nrows - 1) * padding
-
-    # Create blank canvas with white or black background
-    bg_color = (0, 0, 0) if dark_mode else (255, 255, 255)
-    canvas = Image.new("RGB", (canvas_width, canvas_height), bg_color)
-    draw = ImageDraw.Draw(canvas)
-
-    # Default font for labels
-    try:
-        font = ImageFont.truetype("arial.ttf", 14)
-    except IOError:
-        font = ImageFont.load_default()
-
-    if indices is None:
-        indices = np.random.choice(len(dataset), min(len(dataset), nrows * ncols), replace=False)
-
-    # Place each image and label on the canvas
-    for idx, data_idx in enumerate(indices):
-        image, label = dataset[data_idx]
-        image = image_to_PIL(image, cmap=cmap, mean=mean, std=std)  # Preprocess the image
-        image = image.resize(img_size, Image.Resampling.LANCZOS)
-
-        row, col = divmod(idx, ncols)
-        x = col * (img_width + padding)
-        y = row * (img_height + (label_height if show_labels else 0) + padding)
-
-        canvas.paste(image, (x, y + (label_height if show_labels else 0)))
-
-        if show_labels:
-            label_text = class_labels[label] if class_labels else f'{label}'
-            text_color = (255, 255, 255) if dark_mode else (0, 0, 0)
-            text_x = x + img_width // 2
-            text_y = y + label_height // 2
-            draw.text((text_x, text_y), label_text, fill=text_color, font=font, anchor="mm")
-
-    # Display the final grid image
-    if in_notebook():
-        display(canvas)  # Display inline in Jupyter notebook
-    else:
-        canvas.show()  # Open in a separate window if not in a notebook
-'''
-
-# create a new function called plot_random_transformed_images that takes in a dataset, number of images to randomly sample, and the number of tranformed images
-# to display.  each row should represent one image and the columns should represent various versions of the image.  we are assuming that the dataset is a torchvision 
-# dataset with transforms included that produce the desired transformations and outputs tensors.  use image_to_PIL to convert the tensor to a PIL image for display.
 def plot_transformed_images(dataset, num_images=5, num_transformed=5, img_size=(64, 64), padding=2, dark_mode=False, cmap=None, mean=None, std=None):
     """
     Plots a grid of randomly sampled images from the dataset along with their transformed versions.
@@ -392,7 +239,8 @@ def plot_transformed_images(dataset, num_images=5, num_transformed=5, img_size=(
         canvas.show()  # Open in a separate window if not in a notebook
 
 
-def evaluate_classifier(model, dataset, device, display_confusion=True, img_size=(5, 5), batch_size=32):
+def evaluate_classifier(model, dataset, device, display_confusion=True, img_size=(5, 5), 
+                        batch_size=32, use_class_labels=True):
     """
     Evaluates the model on the given dataset, plots the confusion matrix if specified,
     and returns the confusion matrix, classification report, and misclassified dataset.
@@ -417,12 +265,13 @@ def evaluate_classifier(model, dataset, device, display_confusion=True, img_size
     print(f'The model misclassified {len(misclassified_indices)} samples.')
 
     # Check to see if classes are available in dataset.classes or dataset.dataset.classes
-    if hasattr(dataset, 'classes'):
+    if hasattr(dataset, 'classes') and use_class_labels:
         classes = dataset.classes
-    elif hasattr(dataset.dataset, 'classes'):
+    elif hasattr(dataset, 'dataset.classes') and use_class_labels:
         classes = dataset.dataset.classes
     else:
         classes = None
+
 
     # Create a list of strings in the form "truth / predict" for each misclassified index
     misclassified_labels = []
@@ -455,106 +304,16 @@ def evaluate_classifier(model, dataset, device, display_confusion=True, img_size
     # Display the confusion matrix if specified
     if display_confusion:
         fig, ax = plt.subplots(figsize=img_size)
-        disp = ConfusionMatrixDisplay(confusion_mat, display_labels=classes if classes else None)
+        disp = ConfusionMatrixDisplay(confusion_mat, 
+                                      display_labels=classes if classes else None)
         disp.plot(ax=ax)
         plt.show()
 
     # Generate the classification report
-    class_report = classification_report(labels, pred_labels, target_names=classes if classes else None)
+    class_report = classification_report(labels, pred_labels, 
+                                         target_names=classes if classes else None)
 
     return confusion_mat, class_report, misclassified_dataset
-
-'''
-def show_image_grid(nrows, ncols, dataset, class_labels=None, indices=None, show_label=False, fig_scale=2, dark_mode=False, show_preds=False, preds=None, cmap='Greys'):
-    """
-    Show a grid of images with optional ground truth labels and predicted labels.
-    
-    Parameters:
-    - nrows: number of rows in the grid
-    - ncols: number of columns in the grid
-    - dataset: a PyTorch dataset containing images and labels
-    - class_labels: (Optional) a list of class names corresponding to the labels. If None, and dataset has 'classes', it uses that.
-    - indices: (Optional) list of indices specifying which images to show. If None, random images are used.
-    - show_label: (Optional) whether to show labels. Default is False.
-    - fig_scale: (Optional) scale for the figure size. Default is 2.
-    - dark_mode: (Optional) if True, uses a dark mode with black background and white text for labels. Default is False.
-    - show_preds: (Optional) whether to show predictions along with ground truth. Default is False.
-    - preds: (Optional) list-like of predictions corresponding to the images being shown.
-    - cmap: (Optional) color map for single-channel images. Default is 'Greys'.
-    """
-    
-    # Use dataset's classes attribute if class_labels is not provided and dataset has 'classes'
-    if class_labels is None and hasattr(dataset, 'classes'):
-        class_labels = dataset.classes
-    
-    # Calculate figure size based on the scale factor
-    fig, axs = plt.subplots(nrows, ncols, figsize=(ncols * fig_scale, nrows * fig_scale))
-    axs = axs.flatten()
-
-    # Set background color to black if dark_mode is enabled
-    if dark_mode:
-        fig.patch.set_facecolor('black')  # Set the figure background
-        for ax in axs:
-            ax.set_facecolor('black')  # Set the axis background to black
-
-    # If no indices provided, randomly select images from the dataset
-    if indices is None:
-        indices = np.random.choice(len(dataset), nrows * ncols, replace=False)  # Random selection
-    
-    for i, idx in enumerate(indices):
-        image, label = dataset[idx]
-        pred = preds[i] if preds is not None and show_preds else None
-
-        # If the image is a PIL image, convert it to numpy for plotting
-        if isinstance(image, Image.Image):
-            image = np.array(image)
-            
-        # If the image is a tensor, convert to numpy for plotting
-        if isinstance(image, torch.Tensor):
-            image = image.permute(1, 2, 0).numpy()  # Change from (C, H, W) to (H, W, C) or (H, W) for grayscale
-        
-        # Determine if the image is single-channel (grayscale)
-        if image.ndim == 2 or image.shape[2] == 1:  # Single channel (H, W) or (H, W, 1)
-            axs[i].imshow(np.squeeze(image), cmap=cmap)  # Apply cmap for grayscale images
-        else:
-            axs[i].imshow(np.clip(image, 0, 1))  # RGB images without cmap
-        
-        axs[i].axis('off')  # Turn off axis
-        
-        # Prepare label and prediction text
-        label_text = ''
-        if show_label:
-            if class_labels:
-                label_text = f'{class_labels[label]}'
-            else:
-                label_text = f'Label: {label}'
-        
-        # Handle predictions
-        if show_preds and pred is not None:
-            if class_labels:
-                pred_text = f'{class_labels[pred]}' if pred == label else f'**{class_labels[pred]}**'
-            else:
-                pred_text = f'Pred: {pred}' if pred == label else f'**Pred: {pred}**'
-            
-            if pred != label:
-                pred_text = f'Pred: {class_labels[pred]}' if class_labels else f'Pred: {pred}'
-            
-            label_text = f'{label_text} ({pred_text})' if class_labels else f'{label_text}, {pred_text}'
-        
-        # Display the label and prediction (if show_preds=True)
-        if label_text:
-            color = 'white' if dark_mode else 'black'
-            axs[i].set_title(label_text, fontsize=10, color=color)
-
-    # Adjust the layout tightly, with or without labels
-    if show_label or show_preds:
-        plt.tight_layout(pad=2.0)  # Space for labels/predictions
-    else:
-        plt.tight_layout(pad=0.5)  # Minimal space when labels are absent
-    
-    plt.show()
-'''
-
 
 def visualize2DSoftmax(X, y, model, title=None):
     x_min = np.min(X[:,0])-0.5

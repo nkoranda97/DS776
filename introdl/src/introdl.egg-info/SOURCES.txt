@@ -12,4 +12,3 @@ src/introdl/utils/__init__.py
 src/introdl/utils/utils.py
 src/introdl/visul/__init__.py
 src/introdl/visul/visul.py
-src/introdl/visul/visul_backup.py
