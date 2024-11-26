@@ -11,6 +11,8 @@ from matplotlib.patches import Rectangle
 import matplotlib.pyplot as plt
 import requests
 from torchvision import ops
+import ipywidgets as widgets
+from IPython.display import display
 
 def download_pennfudanped(target_dir: Path) -> None:
     """
@@ -450,9 +452,8 @@ def denormalize_image(image: np.ndarray, mean: list[float], std: list[float]) ->
     std = np.array(std)
     return (image * std + mean).clip(0, 1)
 
-def display_images_and_masks(dataset: torch.utils.data.Dataset, num_samples: int = 3, model: torch.nn.Module = None, 
-                             indices: list[int] = None, figsize: tuple[int, int] = (4, 4), overlay: bool = True, 
-                             denormalize: bool = True, mean: list[float] = [0.485, 0.456, 0.406], std: list[float] = [0.229, 0.224, 0.225]) -> None:
+def display_images_and_masks(dataset, num_samples=3, model=None, indices=None, figsize=(4, 4), overlay=True, 
+                             denormalize=True, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
     """
     Display random samples from the dataset with ground truth masks. If a model is provided, it also displays predicted masks.
 
@@ -572,11 +573,11 @@ def denormalize_torch(image_tensor: torch.Tensor, mean: list[float], std: list[f
     std = torch.tensor(std)
     return image_tensor * std[:, None, None] + mean[:, None, None]
 
+'''
 # Combined function to display images with ground truth and optional predictions
-def display_images_and_boxes(dataset: torch.utils.data.Dataset, num_samples: int = 3, model: torch.nn.Module = None, 
-                             confidence_threshold: float = 0.5, iou_threshold: float = 0.4, indices: list[int] = None, 
-                             figsize: tuple[int, int] = (6, 6), denormalize: bool = True, mean: list[float] = [0.485, 0.456, 0.406], 
-                             std: list[float] = [0.229, 0.224, 0.225]) -> None:
+def display_images_and_boxes(dataset, num_samples=3, model=None, confidence_threshold=0.5, iou_threshold=0.4, indices=None, 
+                             figsize=(6, 6), denormalize=True, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], 
+                             show_confidence=False, show_prediction=False):
     """
     Display random samples from the dataset with ground truth boxes. If a model is provided, it also displays predictions.
 
@@ -589,6 +590,8 @@ def display_images_and_boxes(dataset: torch.utils.data.Dataset, num_samples: int
     - indices (list, optional): The indices of the samples to display. If None, random samples will be selected.
     - figsize (tuple, optional): The size of the figure (default: (6,6)).
     - denormalize (bool): Whether to denormalize the image for display.
+    - show_confidence (bool): Whether to show confidence scores on predicted boxes.
+    - show_prediction (bool): Whether to show predicted class labels on boxes.
     """
     if indices is None:
         indices = random.sample(range(len(dataset)), num_samples)
@@ -628,17 +631,318 @@ def display_images_and_boxes(dataset: torch.utils.data.Dataset, num_samples: int
             # Filter predictions by confidence threshold
             pred_boxes = output["boxes"].cpu().detach().numpy()
             pred_scores = output["scores"].cpu().detach().numpy()
+            pred_labels = output["labels"].cpu().detach().numpy()
             
             # Apply confidence threshold
             relevant_boxes = pred_boxes[pred_scores > confidence_threshold]
-            
+            relevant_scores = pred_scores[pred_scores > confidence_threshold]
+            relevant_labels = pred_labels[pred_scores > confidence_threshold]
+
             # Apply Non-Maximum Suppression if needed
             if iou_threshold < 1.0 and len(relevant_boxes) > 0:
-                keep = ops.nms(torch.tensor(relevant_boxes), torch.tensor(pred_scores[pred_scores > confidence_threshold]), iou_threshold)
+                keep = ops.nms(torch.tensor(relevant_boxes), torch.tensor(relevant_scores), iou_threshold)
                 relevant_boxes = relevant_boxes[keep]
+                relevant_scores = relevant_scores[keep]
+                relevant_labels = relevant_labels[keep]
+
+            # Ensure they are arrays even if there's only one relevant box
+            if relevant_boxes.ndim == 1:
+                relevant_boxes = np.expand_dims(relevant_boxes, axis=0)
+                relevant_scores = np.expand_dims(relevant_scores, axis=0)
+                relevant_labels = np.expand_dims(relevant_labels, axis=0)
             
             # Display predicted boxes in orange
             display_boxes(ax, relevant_boxes, color="orange", label="Prediction")
+            
+            # Show confidence scores and predicted class labels if required
+            if show_confidence or show_prediction:
+                class_names = getattr(dataset, 'classes', None)
+                for box, score, label in zip(relevant_boxes, relevant_scores, relevant_labels):
+                    x, y, _, _ = box
+                    text = ""
+                    if show_confidence:
+                        text += f"{score:.2f}"
+                    if show_prediction:
+                        if class_names:
+                            text += f", {class_names[label]}"
+                        else:
+                            text += f", {label}"
+                    ax.text(x, y, text, color="white", fontsize=8, bbox=dict(facecolor="orange", alpha=0.5))
+            
+            # Set up legend with custom labels for ground truth and predictions
+            handles = [
+                Rectangle((0, 0), 1, 1, edgecolor="blue", facecolor='none', label="Ground Truth"),
+                Rectangle((0, 0), 1, 1, edgecolor="orange", facecolor='none', label="Prediction")
+            ]
+        else:
+            # Only ground truth legend
+            handles = [Rectangle((0, 0), 1, 1, edgecolor="blue", facecolor='none', label="Ground Truth")]
+        
+        plt.legend(handles=handles)
+        plt.axis('off')
+        plt.show()
+'''
+
+'''
+def display_images_and_boxes(dataset, num_samples=3, model=None, confidence_threshold=0.5, iou_threshold=0.4, indices=None, 
+                             figsize=(6, 6), denormalize=True, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], 
+                             show_confidence=False, show_prediction=False, filter_mode='nms'):
+    """
+    Display random samples from the dataset with ground truth boxes. If a model is provided, it also displays predictions.
+
+    Parameters:
+    - dataset: The dataset containing the images and ground truth annotations.
+    - num_samples: The number of random samples to display (default: 3).
+    - model: The object detection model. If None, only ground truth boxes are displayed.
+    - confidence_threshold: The confidence threshold for filtering predictions (default: 0.5).
+    - iou_threshold: The IoU threshold for Non-Max Suppression (default: 0.4).
+    - indices (list, optional): The indices of the samples to display. If None, random samples will be selected.
+    - figsize (tuple, optional): The size of the figure (default: (6,6)).
+    - denormalize (bool): Whether to denormalize the image for display.
+    - show_confidence (bool): Whether to show confidence scores on predicted boxes.
+    - show_prediction (bool): Whether to show predicted class labels on boxes.
+    - filter_mode (str): The mode for filtering predictions ('nms' for Non-Max Suppression, 'gt' for ground truth filtering).
+    """
+    if indices is None:
+        indices = random.sample(range(len(dataset)), num_samples)
+    
+    device = None
+    if model is not None:
+        model.eval()
+        device = next(model.parameters()).device
+
+    for idx in indices:
+        # Load the image and target directly from the dataset
+        image, target = dataset[idx]
+        
+        # Denormalize the image if needed
+        if denormalize:
+            image = denormalize_torch(image, mean, std)
+        
+        img_np = image.permute(1, 2, 0).cpu().numpy() if device else image.permute(1, 2, 0).numpy()
+        
+        # Prepare the figure
+        fig, ax = plt.subplots(1, figsize=figsize)
+        ax.imshow(img_np)
+        
+        # Check if ground truth boxes are available
+        if "boxes" in target and target["boxes"].numel() > 0:
+            gt_boxes = target["boxes"].cpu().numpy() if device else target["boxes"].numpy()
+            display_boxes(ax, gt_boxes, color="blue", label="Ground Truth")
+        else:
+            print(f"No ground truth boxes found for index {idx}")
+
+        if model is not None:
+            # Move image to device if model is specified
+            image = image.to(device)
+            with torch.no_grad():
+                output = model([image])[0]
+            
+            # Filter predictions by confidence threshold
+            pred_boxes = output["boxes"].cpu().detach().numpy()
+            pred_scores = output["scores"].cpu().detach().numpy()
+            pred_labels = output["labels"].cpu().detach().numpy()
+            
+            # Apply confidence threshold
+            relevant_boxes = pred_boxes[pred_scores > confidence_threshold]
+            relevant_scores = pred_scores[pred_scores > confidence_threshold]
+            relevant_labels = pred_labels[pred_scores > confidence_threshold]
+
+            if filter_mode == 'nms':
+                # Apply Non-Maximum Suppression if needed
+                if iou_threshold < 1.0 and len(relevant_boxes) > 0:
+                    keep = ops.nms(torch.tensor(relevant_boxes), torch.tensor(relevant_scores), iou_threshold)
+                    relevant_boxes = relevant_boxes[keep]
+                    relevant_scores = relevant_scores[keep]
+                    relevant_labels = relevant_labels[keep]
+            elif filter_mode == 'gt':
+                # Filter out predictions with IoU below threshold with any ground truth box
+                if len(relevant_boxes) > 0 and len(gt_boxes) > 0:
+                    ious = ops.box_iou(torch.tensor(relevant_boxes), torch.tensor(gt_boxes)).numpy()
+                    keep = np.any(ious > iou_threshold, axis=1)
+                    relevant_boxes = relevant_boxes[keep]
+                    relevant_scores = relevant_scores[keep]
+                    relevant_labels = relevant_labels[keep]
+
+            # Ensure they are arrays even if there's only one relevant box
+            if relevant_boxes.ndim == 1:
+                relevant_boxes = np.expand_dims(relevant_boxes, axis=0)
+                relevant_scores = np.expand_dims(relevant_scores, axis=0)
+                relevant_labels = np.expand_dims(relevant_labels, axis=0)
+            
+            # Display predicted boxes in orange
+            display_boxes(ax, relevant_boxes, color="orange", label="Prediction")
+            
+            # Show confidence scores and predicted class labels if required
+            if show_confidence or show_prediction:
+                class_names = getattr(dataset, 'classes', None)
+                for box, score, label in zip(relevant_boxes, relevant_scores, relevant_labels):
+                    x, y, _, _ = box
+                    text = ""
+                    if show_confidence:
+                        text += f"{score:.2f}"
+                    if show_prediction:
+                        if class_names:
+                            text += f", {class_names[label]}"
+                        else:
+                            text += f", {label}"
+                    ax.text(x, y, text, color="white", fontsize=8, bbox=dict(facecolor="orange", alpha=0.5))
+            
+            # Set up legend with custom labels for ground truth and predictions
+            handles = [
+                Rectangle((0, 0), 1, 1, edgecolor="blue", facecolor='none', label="Ground Truth"),
+                Rectangle((0, 0), 1, 1, edgecolor="orange", facecolor='none', label="Prediction")
+            ]
+        else:
+            # Only ground truth legend
+            handles = [Rectangle((0, 0), 1, 1, edgecolor="blue", facecolor='none', label="Ground Truth")]
+        
+        plt.legend(handles=handles)
+        plt.axis('off')
+        plt.show()
+'''
+
+def predict_boxes(dataset, index, model, mean=None, std=None):
+    """
+    Predict bounding boxes and labels for a given image in the dataset.
+
+    Parameters:
+    - dataset: The dataset containing the images and ground truth annotations.
+    - index: The index of the image to predict on.
+    - model: The object detection model.
+    - mean: The mean values for normalization (default: None).
+    - std: The standard deviation values for normalization (default: None).
+
+    Returns:
+    - image: The denormalized image.
+    - gt_boxes: The ground truth bounding boxes.
+    - gt_labels: The ground truth labels.
+    - pred_boxes: The predicted bounding boxes.
+    - pred_scores: The predicted scores.
+    - pred_labels: The predicted labels.
+    """
+    image, target = dataset[index]
+
+    if mean is not None and std is not None:
+        image = denormalize_torch(image, mean, std)
+
+    device = next(model.parameters()).device
+    model.eval()
+    with torch.no_grad():
+        output = model([image.to(device)])[0]
+
+    gt_boxes = target["boxes"].cpu().numpy() if "boxes" in target else None
+    gt_labels = target["labels"].cpu().numpy() if "labels" in target else None
+    pred_boxes = output["boxes"].cpu().detach().numpy()
+    pred_scores = output["scores"].cpu().detach().numpy()
+    pred_labels = output["labels"].cpu().detach().numpy()
+
+    return image, gt_boxes, gt_labels, pred_boxes, pred_scores, pred_labels
+
+
+def display_images_and_boxes(dataset, num_samples=3, model=None, confidence_threshold=0.5, iou_threshold=0.4, indices=None, 
+                             figsize=(6, 6), denormalize=True, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], 
+                             show_confidence=False, show_prediction=False, filter_mode='nms'):
+    """
+    Display random samples from the dataset with ground truth boxes. If a model is provided, it also displays predictions.
+
+    Parameters:
+    - dataset: The dataset containing the images and ground truth annotations.
+    - num_samples: The number of random samples to display (default: 3).
+    - model: The object detection model. If None, only ground truth boxes are displayed.
+    - confidence_threshold: The confidence threshold for filtering predictions (default: 0.5).
+    - iou_threshold: The IoU threshold for Non-Max Suppression (default: 0.4).
+    - indices (list, optional): The indices of the samples to display. If None, random samples will be selected.
+    - figsize (tuple, optional): The size of the figure (default: (6,6)).
+    - denormalize (bool): Whether to denormalize the image for display.
+    - show_confidence (bool): Whether to show confidence scores on predicted boxes.
+    - show_prediction (bool): Whether to show predicted class labels on boxes.
+    - filter_mode (str): The mode for filtering predictions ('nms' for Non-Max Suppression, 'gt' for ground truth filtering).
+    """
+    if indices is None:
+        indices = random.sample(range(len(dataset)), num_samples)
+    
+    device = None
+    if model is not None:
+        model.eval()
+        device = next(model.parameters()).device
+
+    for idx in indices:
+        # Load the image and target directly from the dataset
+        image, target = dataset[idx]
+        
+        # Denormalize the image if needed
+        if denormalize:
+            image = denormalize_torch(image, mean, std)
+        
+        img_np = image.permute(1, 2, 0).cpu().numpy() if device else image.permute(1, 2, 0).numpy()
+        
+        # Prepare the figure
+        fig, ax = plt.subplots(1, figsize=figsize)
+        ax.imshow(img_np)
+        
+        # Check if ground truth boxes are available
+        if "boxes" in target and target["boxes"].numel() > 0:
+            gt_boxes = target["boxes"].cpu().numpy() if device else target["boxes"].numpy()
+            display_boxes(ax, gt_boxes, color="blue", label="Ground Truth")
+        else:
+            print(f"No ground truth boxes found for index {idx}")
+
+        if model is not None:
+            # Move image to device if model is specified
+            image = image.to(device)
+            with torch.no_grad():
+                output = predict_boxes(dataset, idx, model, mean, std)
+            
+            # Filter predictions by confidence threshold
+            pred_boxes = output["boxes"].cpu().detach().numpy()
+            pred_scores = output["scores"].cpu().detach().numpy()
+            pred_labels = output["labels"].cpu().detach().numpy()
+            
+            # Apply confidence threshold
+            relevant_boxes = pred_boxes[pred_scores > confidence_threshold]
+            relevant_scores = pred_scores[pred_scores > confidence_threshold]
+            relevant_labels = pred_labels[pred_scores > confidence_threshold]
+
+            if filter_mode == 'nms':
+                # Apply Non-Maximum Suppression if needed
+                if iou_threshold < 1.0 and len(relevant_boxes) > 0:
+                    keep = ops.nms(torch.tensor(relevant_boxes), torch.tensor(relevant_scores), iou_threshold)
+                    relevant_boxes = relevant_boxes[keep]
+                    relevant_scores = relevant_scores[keep]
+                    relevant_labels = relevant_labels[keep]
+            elif filter_mode == 'gt':
+                # Filter out predictions with IoU below threshold with any ground truth box
+                if len(relevant_boxes) > 0 and len(gt_boxes) > 0:
+                    ious = ops.box_iou(torch.tensor(relevant_boxes), torch.tensor(gt_boxes)).numpy()
+                    keep = np.any(ious > iou_threshold, axis=1)
+                    relevant_boxes = relevant_boxes[keep]
+                    relevant_scores = relevant_scores[keep]
+                    relevant_labels = relevant_labels[keep]
+
+            # Ensure they are arrays even if there's only one relevant box
+            if relevant_boxes.ndim == 1:
+                relevant_boxes = np.expand_dims(relevant_boxes, axis=0)
+                relevant_scores = np.expand_dims(relevant_scores, axis=0)
+                relevant_labels = np.expand_dims(relevant_labels, axis=0)
+            
+            # Display predicted boxes in orange
+            display_boxes(ax, relevant_boxes, color="orange", label="Prediction")
+            
+            # Show confidence scores and predicted class labels if required
+            if show_confidence or show_prediction:
+                class_names = getattr(dataset, 'classes', None)
+                for box, score, label in zip(relevant_boxes, relevant_scores, relevant_labels):
+                    x, y, _, _ = box
+                    text = ""
+                    if show_confidence:
+                        text += f"{score:.2f}"
+                    if show_prediction:
+                        if class_names:
+                            text += f", {class_names[label]}"
+                        else:
+                            text += f", {label}"
+                    ax.text(x, y, text, color="white", fontsize=8, bbox=dict(facecolor="orange", alpha=0.5))
             
             # Set up legend with custom labels for ground truth and predictions
             handles = [
@@ -653,3 +957,78 @@ def display_images_and_boxes(dataset: torch.utils.data.Dataset, num_samples: int
         plt.axis('off')
         plt.show()
 
+        import matplotlib.pyplot as plt
+
+def display_image_with_boxes(image, gt_boxes, gt_labels, pred_boxes, pred_scores, pred_labels):
+    """
+    Display an image with ground truth and predicted bounding boxes.
+
+    Parameters:
+    - image: The image to display.
+    - gt_boxes: The ground truth bounding boxes.
+    - gt_labels: The ground truth labels.
+    - pred_boxes: The predicted bounding boxes.
+    - pred_scores: The predicted scores.
+    - pred_labels: The predicted labels.
+    """
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.imshow(image)
+
+    # Display ground truth boxes
+    if gt_boxes is not None:
+        for box, label in zip(gt_boxes, gt_labels):
+            x, y, w, h = box
+            rect = plt.Rectangle((x, y), w, h, fill=False, edgecolor='blue')
+            ax.add_patch(rect)
+            ax.text(x, y, label, color='blue', fontsize=8, bbox=dict(facecolor='white', alpha=0.5))
+
+    # Display predicted boxes
+    for box, score, label in zip(pred_boxes, pred_scores, pred_labels):
+        x, y, w, h = box
+        rect = plt.Rectangle((x, y), w, h, fill=False, edgecolor='red')
+        ax.add_patch(rect)
+        ax.text(x, y, f'{label}: {score:.2f}', color='red', fontsize=8, bbox=dict(facecolor='white', alpha=0.5))
+
+    plt.axis('off')
+    plt.show()
+
+def display_image_with_dropdown(image, gt_boxes, gt_labels, pred_boxes, pred_scores, pred_labels):
+    """
+    Display an image with ground truth and predicted bounding boxes, and a dropdown to select the class to display.
+
+    Parameters:
+    - image: The image to display.
+    - gt_boxes: The ground truth bounding boxes.
+    - gt_labels: The ground truth labels.
+    - pred_boxes: The predicted bounding boxes.
+    - pred_scores: The predicted scores.
+    - pred_labels: The predicted labels.
+    """
+    class_names = np.unique(np.concatenate((gt_labels, pred_labels)))
+    dropdown = widgets.Dropdown(options=class_names, description='Class:')
+    output = widgets.Output()
+
+    def on_dropdown_change(change):
+        output.clear_output()
+        selected_class = change.new
+        selected_gt_boxes = gt_boxes[gt_labels == selected_class] if gt_boxes is not None else None
+        selected_pred_boxes = pred_boxes[pred_labels == selected_class]
+        selected_pred_scores = pred_scores[pred_labels == selected_class]
+        selected_pred_labels = pred_labels[pred_labels == selected_class]
+        with output:
+            display_image_with_boxes(image, selected_gt_boxes, [selected_class] * len(selected_gt_boxes),
+                                        selected_pred_boxes, selected_pred_scores, selected_pred_labels)
+
+    dropdown.observe(on_dropdown_change, names='value')
+    on_dropdown_change({'new': class_names[0]})
+
+    display(widgets.VBox([dropdown, output]))
+
+# Example usage:
+image = np.random.rand(100, 100, 3)
+gt_boxes = np.array([[10, 10, 20, 20], [30, 30, 40, 40]])
+gt_labels = np.array(['cat', 'dog'])
+pred_boxes = np.array([[15, 15, 25, 25], [35, 35, 45, 45]])
+pred_scores = np.array([0.9, 0.8])
+pred_labels = np.array(['cat', 'dog'])
+display_image_with_dropdown(image, gt_boxes, gt_labels, pred_boxes, pred_scores, pred_labels)
