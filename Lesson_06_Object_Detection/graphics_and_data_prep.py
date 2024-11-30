@@ -12,7 +12,155 @@ import matplotlib.pyplot as plt
 import requests
 from torchvision import ops
 import ipywidgets as widgets
-from IPython.display import display
+from IPython.display import display, clear_output
+import ipywidgets as widgets
+import json
+import pandas as pd
+from torchmetrics.detection.mean_ap import MeanAveragePrecision
+
+def train_one_epoch(model, optimizer, train_loader, val_loader, device, map_metric, scheduler, step_per_batch=False):
+    '''
+    Trains the model for one epoch and evaluates it on the validation set.
+    Args:
+        model (torch.nn.Module): The model to be trained.
+        optimizer (torch.optim.Optimizer): The optimizer used for training.
+        train_loader (torch.utils.data.DataLoader): DataLoader for the training set.
+        val_loader (torch.utils.data.DataLoader): DataLoader for the validation set.
+        device (torch.device): The device to run the model on (e.g., 'cuda' or 'cpu').
+        map_metric (torchmetrics.Metric): Metric for calculating mean Average Precision (mAP).
+        scheduler (torch.optim.lr_scheduler._LRScheduler, optional): Learning rate scheduler.
+        step_per_batch (bool, optional): Whether to step the scheduler per batch. Default is False.
+    Returns:
+        tuple: A tuple containing:
+            - avg_train_loss (float): The average training loss for the epoch.
+            - avg_val_loss (float): The average validation loss for the epoch.
+            - map_50 (float): The mAP at IoU=0.50.
+            - map_50_95 (float): The mAP at IoU=0.50:0.95.
+    '''
+
+    model.train()
+    running_loss = 0.0
+    
+    # Training phase
+    for images, targets in train_loader:
+        images = [img.to(device) for img in images]
+        targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
+        
+        optimizer.zero_grad()
+        loss_dict = model(images, targets)
+        losses = sum(loss for loss in loss_dict.values())
+        
+        losses.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
+        optimizer.step()
+        
+        running_loss += losses.item()
+
+        if scheduler and step_per_batch:
+            scheduler.step()
+    
+    avg_train_loss = running_loss / len(train_loader)
+    
+    # Validation phase
+    model.eval()  # Switch to eval mode to get predictions
+    val_running_loss = 0.0
+    map_metric.reset()  # Reset metrics before validation
+
+    with torch.no_grad():
+        for images, targets in val_loader:
+            images = [img.to(device) for img in images]
+            targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
+            
+            # Get model predictions without targets to avoid returning losses
+            outputs = model(images)
+            
+            # Format outputs and targets for torchmetrics
+            formatted_outputs = [
+                {k: v.cpu() for k, v in output.items()} for output in outputs
+            ]
+            formatted_targets = [
+                {k: (v.cpu() if isinstance(v, torch.Tensor) else v) for k, v in target.items()} for target in targets
+            ]
+            
+            # Update mAP metric with formatted outputs and targets
+            map_metric.update(formatted_outputs, formatted_targets)
+            
+            # Temporarily switch to training mode to compute validation loss
+            model.train()
+            loss_dict = model(images, targets)
+            val_losses = sum(loss for loss in loss_dict.values())
+            val_running_loss += val_losses.item()
+            
+            # Switch back to eval mode for the next prediction
+            model.eval()
+
+    # Calculate mAP metrics
+    avg_val_loss = val_running_loss / len(val_loader)
+    map_metrics = map_metric.compute()
+    map_50 = map_metrics['map_50']
+    map_50_95 = map_metrics['map']
+    
+    return avg_train_loss, avg_val_loss, map_50, map_50_95
+
+
+def train_rcnn(model, optimizer, scheduler, train_loader, val_loader, device, save_file, 
+               num_epochs=15, step_per_batch=False):
+
+    '''
+    Train a Region-based Convolutional Neural Network (RCNN) model.
+    Args:
+        model (torch.nn.Module): The RCNN model to be trained.
+        optimizer (torch.optim.Optimizer): The optimizer used for training.
+        scheduler (torch.optim.lr_scheduler._LRScheduler): Learning rate scheduler.
+        train_loader (torch.utils.data.DataLoader): DataLoader for the training dataset.
+        val_loader (torch.utils.data.DataLoader): DataLoader for the validation dataset.
+        device (torch.device): Device to run the model on (e.g., 'cpu' or 'cuda').
+        save_file (str): Path to save the final model weights.
+        num_epochs (int, optional): Number of epochs to train the model. Default is 15.
+        step_per_batch (bool, optional): Whether to step the scheduler per batch. Default is False.
+    Returns:
+        pd.DataFrame: DataFrame containing training and validation metrics for each epoch.
+    '''
+
+    # Initialize mAP metrics for validation
+    map_metric = MeanAveragePrecision(iou_thresholds=[0.5, 0.75])
+
+    # DataFrame to store results
+    results = pd.DataFrame(columns=['epoch', 'train_loss', 'val_loss', 'map_50', 'map_50_95', 'lr'])
+
+    for epoch in range(num_epochs):
+        # Train and validate for the epoch
+        avg_train_loss, avg_val_loss, map_50, map_50_95 = train_one_epoch(model, optimizer, train_loader, 
+                                                                          val_loader, device, map_metric, 
+                                                                          scheduler, step_per_batch)
+        
+        # Get current learning rate
+        current_lr = optimizer.param_groups[0]['lr']
+        
+        # Append results to DataFrame
+        results.loc[len(results)] = {
+            'epoch': epoch + 1,
+            'train_loss': avg_train_loss,
+            'val_loss': avg_val_loss,
+            'map_50': map_50.item(),
+            'map_50_95': map_50_95.item(),
+            'lr': current_lr
+        }
+
+        epoch_str = (f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {avg_train_loss:.4f}, "
+                     f"Val Loss: {avg_val_loss:.4f}, mAP@50: {map_50:.4f}, mAP@50-95: {map_50_95:.4f}, LR: {current_lr:.6f}")
+
+        print(epoch_str)
+
+        # Step the scheduler based on mAP@50-95
+        if scheduler and not step_per_batch:
+            scheduler.step(map_50)
+
+    # Save final model weights
+    torch.save(model.state_dict(), save_file)
+    print(f"Training complete. Final model weights saved.")
+
+    return results
 
 def download_pennfudanped(target_dir: Path) -> None:
     """
@@ -573,118 +721,7 @@ def denormalize_torch(image_tensor: torch.Tensor, mean: list[float], std: list[f
     std = torch.tensor(std)
     return image_tensor * std[:, None, None] + mean[:, None, None]
 
-'''
-# Combined function to display images with ground truth and optional predictions
-def display_images_and_boxes(dataset, num_samples=3, model=None, confidence_threshold=0.5, iou_threshold=0.4, indices=None, 
-                             figsize=(6, 6), denormalize=True, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], 
-                             show_confidence=False, show_prediction=False):
-    """
-    Display random samples from the dataset with ground truth boxes. If a model is provided, it also displays predictions.
-
-    Parameters:
-    - dataset: The dataset containing the images and ground truth annotations.
-    - num_samples: The number of random samples to display (default: 3).
-    - model: The object detection model. If None, only ground truth boxes are displayed.
-    - confidence_threshold: The confidence threshold for filtering predictions (default: 0.5).
-    - iou_threshold: The IoU threshold for Non-Max Suppression (default: 0.4).
-    - indices (list, optional): The indices of the samples to display. If None, random samples will be selected.
-    - figsize (tuple, optional): The size of the figure (default: (6,6)).
-    - denormalize (bool): Whether to denormalize the image for display.
-    - show_confidence (bool): Whether to show confidence scores on predicted boxes.
-    - show_prediction (bool): Whether to show predicted class labels on boxes.
-    """
-    if indices is None:
-        indices = random.sample(range(len(dataset)), num_samples)
-    
-    device = None
-    if model is not None:
-        model.eval()
-        device = next(model.parameters()).device
-
-    for idx in indices:
-        # Load the image and target directly from the dataset
-        image, target = dataset[idx]
-        
-        # Denormalize the image if needed
-        if denormalize:
-            image = denormalize_torch(image, mean, std)
-        
-        img_np = image.permute(1, 2, 0).cpu().numpy() if device else image.permute(1, 2, 0).numpy()
-        
-        # Prepare the figure
-        fig, ax = plt.subplots(1, figsize=figsize)
-        ax.imshow(img_np)
-        
-        # Check if ground truth boxes are available
-        if "boxes" in target and target["boxes"].numel() > 0:
-            gt_boxes = target["boxes"].cpu().numpy() if device else target["boxes"].numpy()
-            display_boxes(ax, gt_boxes, color="blue", label="Ground Truth")
-        else:
-            print(f"No ground truth boxes found for index {idx}")
-
-        if model is not None:
-            # Move image to device if model is specified
-            image = image.to(device)
-            with torch.no_grad():
-                output = model([image])[0]
-            
-            # Filter predictions by confidence threshold
-            pred_boxes = output["boxes"].cpu().detach().numpy()
-            pred_scores = output["scores"].cpu().detach().numpy()
-            pred_labels = output["labels"].cpu().detach().numpy()
-            
-            # Apply confidence threshold
-            relevant_boxes = pred_boxes[pred_scores > confidence_threshold]
-            relevant_scores = pred_scores[pred_scores > confidence_threshold]
-            relevant_labels = pred_labels[pred_scores > confidence_threshold]
-
-            # Apply Non-Maximum Suppression if needed
-            if iou_threshold < 1.0 and len(relevant_boxes) > 0:
-                keep = ops.nms(torch.tensor(relevant_boxes), torch.tensor(relevant_scores), iou_threshold)
-                relevant_boxes = relevant_boxes[keep]
-                relevant_scores = relevant_scores[keep]
-                relevant_labels = relevant_labels[keep]
-
-            # Ensure they are arrays even if there's only one relevant box
-            if relevant_boxes.ndim == 1:
-                relevant_boxes = np.expand_dims(relevant_boxes, axis=0)
-                relevant_scores = np.expand_dims(relevant_scores, axis=0)
-                relevant_labels = np.expand_dims(relevant_labels, axis=0)
-            
-            # Display predicted boxes in orange
-            display_boxes(ax, relevant_boxes, color="orange", label="Prediction")
-            
-            # Show confidence scores and predicted class labels if required
-            if show_confidence or show_prediction:
-                class_names = getattr(dataset, 'classes', None)
-                for box, score, label in zip(relevant_boxes, relevant_scores, relevant_labels):
-                    x, y, _, _ = box
-                    text = ""
-                    if show_confidence:
-                        text += f"{score:.2f}"
-                    if show_prediction:
-                        if class_names:
-                            text += f", {class_names[label]}"
-                        else:
-                            text += f", {label}"
-                    ax.text(x, y, text, color="white", fontsize=8, bbox=dict(facecolor="orange", alpha=0.5))
-            
-            # Set up legend with custom labels for ground truth and predictions
-            handles = [
-                Rectangle((0, 0), 1, 1, edgecolor="blue", facecolor='none', label="Ground Truth"),
-                Rectangle((0, 0), 1, 1, edgecolor="orange", facecolor='none', label="Prediction")
-            ]
-        else:
-            # Only ground truth legend
-            handles = [Rectangle((0, 0), 1, 1, edgecolor="blue", facecolor='none', label="Ground Truth")]
-        
-        plt.legend(handles=handles)
-        plt.axis('off')
-        plt.show()
-'''
-
-'''
-def display_images_and_boxes(dataset, num_samples=3, model=None, confidence_threshold=0.5, iou_threshold=0.4, indices=None, 
+def display_images_and_boxes(dataset, num_samples=3, model=None, min_confidence=0.5, iou_max_overlap=0.4, indices=None, 
                              figsize=(6, 6), denormalize=True, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], 
                              show_confidence=False, show_prediction=False, filter_mode='nms'):
     """
@@ -694,8 +731,8 @@ def display_images_and_boxes(dataset, num_samples=3, model=None, confidence_thre
     - dataset: The dataset containing the images and ground truth annotations.
     - num_samples: The number of random samples to display (default: 3).
     - model: The object detection model. If None, only ground truth boxes are displayed.
-    - confidence_threshold: The confidence threshold for filtering predictions (default: 0.5).
-    - iou_threshold: The IoU threshold for Non-Max Suppression (default: 0.4).
+    - min_confidence: The confidence threshold for filtering predictions (default: 0.5).
+    - iou_max_overlap: The IoU threshold for Non-Max Suppression (default: 0.4).
     - indices (list, optional): The indices of the samples to display. If None, random samples will be selected.
     - figsize (tuple, optional): The size of the figure (default: (6,6)).
     - denormalize (bool): Whether to denormalize the image for display.
@@ -744,14 +781,14 @@ def display_images_and_boxes(dataset, num_samples=3, model=None, confidence_thre
             pred_labels = output["labels"].cpu().detach().numpy()
             
             # Apply confidence threshold
-            relevant_boxes = pred_boxes[pred_scores > confidence_threshold]
-            relevant_scores = pred_scores[pred_scores > confidence_threshold]
-            relevant_labels = pred_labels[pred_scores > confidence_threshold]
+            relevant_boxes = pred_boxes[pred_scores > min_confidence]
+            relevant_scores = pred_scores[pred_scores > min_confidence]
+            relevant_labels = pred_labels[pred_scores > min_confidence]
 
             if filter_mode == 'nms':
                 # Apply Non-Maximum Suppression if needed
-                if iou_threshold < 1.0 and len(relevant_boxes) > 0:
-                    keep = ops.nms(torch.tensor(relevant_boxes), torch.tensor(relevant_scores), iou_threshold)
+                if iou_max_overlap < 1.0 and len(relevant_boxes) > 0:
+                    keep = ops.nms(torch.tensor(relevant_boxes), torch.tensor(relevant_scores), iou_max_overlap)
                     relevant_boxes = relevant_boxes[keep]
                     relevant_scores = relevant_scores[keep]
                     relevant_labels = relevant_labels[keep]
@@ -759,163 +796,7 @@ def display_images_and_boxes(dataset, num_samples=3, model=None, confidence_thre
                 # Filter out predictions with IoU below threshold with any ground truth box
                 if len(relevant_boxes) > 0 and len(gt_boxes) > 0:
                     ious = ops.box_iou(torch.tensor(relevant_boxes), torch.tensor(gt_boxes)).numpy()
-                    keep = np.any(ious > iou_threshold, axis=1)
-                    relevant_boxes = relevant_boxes[keep]
-                    relevant_scores = relevant_scores[keep]
-                    relevant_labels = relevant_labels[keep]
-
-            # Ensure they are arrays even if there's only one relevant box
-            if relevant_boxes.ndim == 1:
-                relevant_boxes = np.expand_dims(relevant_boxes, axis=0)
-                relevant_scores = np.expand_dims(relevant_scores, axis=0)
-                relevant_labels = np.expand_dims(relevant_labels, axis=0)
-            
-            # Display predicted boxes in orange
-            display_boxes(ax, relevant_boxes, color="orange", label="Prediction")
-            
-            # Show confidence scores and predicted class labels if required
-            if show_confidence or show_prediction:
-                class_names = getattr(dataset, 'classes', None)
-                for box, score, label in zip(relevant_boxes, relevant_scores, relevant_labels):
-                    x, y, _, _ = box
-                    text = ""
-                    if show_confidence:
-                        text += f"{score:.2f}"
-                    if show_prediction:
-                        if class_names:
-                            text += f", {class_names[label]}"
-                        else:
-                            text += f", {label}"
-                    ax.text(x, y, text, color="white", fontsize=8, bbox=dict(facecolor="orange", alpha=0.5))
-            
-            # Set up legend with custom labels for ground truth and predictions
-            handles = [
-                Rectangle((0, 0), 1, 1, edgecolor="blue", facecolor='none', label="Ground Truth"),
-                Rectangle((0, 0), 1, 1, edgecolor="orange", facecolor='none', label="Prediction")
-            ]
-        else:
-            # Only ground truth legend
-            handles = [Rectangle((0, 0), 1, 1, edgecolor="blue", facecolor='none', label="Ground Truth")]
-        
-        plt.legend(handles=handles)
-        plt.axis('off')
-        plt.show()
-'''
-
-def predict_boxes(dataset, index, model, mean=None, std=None):
-    """
-    Predict bounding boxes and labels for a given image in the dataset.
-
-    Parameters:
-    - dataset: The dataset containing the images and ground truth annotations.
-    - index: The index of the image to predict on.
-    - model: The object detection model.
-    - mean: The mean values for normalization (default: None).
-    - std: The standard deviation values for normalization (default: None).
-
-    Returns:
-    - image: The denormalized image.
-    - gt_boxes: The ground truth bounding boxes.
-    - gt_labels: The ground truth labels.
-    - pred_boxes: The predicted bounding boxes.
-    - pred_scores: The predicted scores.
-    - pred_labels: The predicted labels.
-    """
-    image, target = dataset[index]
-
-    if mean is not None and std is not None:
-        image = denormalize_torch(image, mean, std)
-
-    device = next(model.parameters()).device
-    model.eval()
-    with torch.no_grad():
-        output = model([image.to(device)])[0]
-
-    gt_boxes = target["boxes"].cpu().numpy() if "boxes" in target else None
-    gt_labels = target["labels"].cpu().numpy() if "labels" in target else None
-    pred_boxes = output["boxes"].cpu().detach().numpy()
-    pred_scores = output["scores"].cpu().detach().numpy()
-    pred_labels = output["labels"].cpu().detach().numpy()
-
-    return image, gt_boxes, gt_labels, pred_boxes, pred_scores, pred_labels
-
-
-def display_images_and_boxes(dataset, num_samples=3, model=None, confidence_threshold=0.5, iou_threshold=0.4, indices=None, 
-                             figsize=(6, 6), denormalize=True, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], 
-                             show_confidence=False, show_prediction=False, filter_mode='nms'):
-    """
-    Display random samples from the dataset with ground truth boxes. If a model is provided, it also displays predictions.
-
-    Parameters:
-    - dataset: The dataset containing the images and ground truth annotations.
-    - num_samples: The number of random samples to display (default: 3).
-    - model: The object detection model. If None, only ground truth boxes are displayed.
-    - confidence_threshold: The confidence threshold for filtering predictions (default: 0.5).
-    - iou_threshold: The IoU threshold for Non-Max Suppression (default: 0.4).
-    - indices (list, optional): The indices of the samples to display. If None, random samples will be selected.
-    - figsize (tuple, optional): The size of the figure (default: (6,6)).
-    - denormalize (bool): Whether to denormalize the image for display.
-    - show_confidence (bool): Whether to show confidence scores on predicted boxes.
-    - show_prediction (bool): Whether to show predicted class labels on boxes.
-    - filter_mode (str): The mode for filtering predictions ('nms' for Non-Max Suppression, 'gt' for ground truth filtering).
-    """
-    if indices is None:
-        indices = random.sample(range(len(dataset)), num_samples)
-    
-    device = None
-    if model is not None:
-        model.eval()
-        device = next(model.parameters()).device
-
-    for idx in indices:
-        # Load the image and target directly from the dataset
-        image, target = dataset[idx]
-        
-        # Denormalize the image if needed
-        if denormalize:
-            image = denormalize_torch(image, mean, std)
-        
-        img_np = image.permute(1, 2, 0).cpu().numpy() if device else image.permute(1, 2, 0).numpy()
-        
-        # Prepare the figure
-        fig, ax = plt.subplots(1, figsize=figsize)
-        ax.imshow(img_np)
-        
-        # Check if ground truth boxes are available
-        if "boxes" in target and target["boxes"].numel() > 0:
-            gt_boxes = target["boxes"].cpu().numpy() if device else target["boxes"].numpy()
-            display_boxes(ax, gt_boxes, color="blue", label="Ground Truth")
-        else:
-            print(f"No ground truth boxes found for index {idx}")
-
-        if model is not None:
-            # Move image to device if model is specified
-            image = image.to(device)
-            with torch.no_grad():
-                output = predict_boxes(dataset, idx, model, mean, std)
-            
-            # Filter predictions by confidence threshold
-            pred_boxes = output["boxes"].cpu().detach().numpy()
-            pred_scores = output["scores"].cpu().detach().numpy()
-            pred_labels = output["labels"].cpu().detach().numpy()
-            
-            # Apply confidence threshold
-            relevant_boxes = pred_boxes[pred_scores > confidence_threshold]
-            relevant_scores = pred_scores[pred_scores > confidence_threshold]
-            relevant_labels = pred_labels[pred_scores > confidence_threshold]
-
-            if filter_mode == 'nms':
-                # Apply Non-Maximum Suppression if needed
-                if iou_threshold < 1.0 and len(relevant_boxes) > 0:
-                    keep = ops.nms(torch.tensor(relevant_boxes), torch.tensor(relevant_scores), iou_threshold)
-                    relevant_boxes = relevant_boxes[keep]
-                    relevant_scores = relevant_scores[keep]
-                    relevant_labels = relevant_labels[keep]
-            elif filter_mode == 'gt':
-                # Filter out predictions with IoU below threshold with any ground truth box
-                if len(relevant_boxes) > 0 and len(gt_boxes) > 0:
-                    ious = ops.box_iou(torch.tensor(relevant_boxes), torch.tensor(gt_boxes)).numpy()
-                    keep = np.any(ious > iou_threshold, axis=1)
+                    keep = np.any(ious > iou_max_overlap, axis=1)
                     relevant_boxes = relevant_boxes[keep]
                     relevant_scores = relevant_scores[keep]
                     relevant_labels = relevant_labels[keep]
@@ -957,78 +838,355 @@ def display_images_and_boxes(dataset, num_samples=3, model=None, confidence_thre
         plt.axis('off')
         plt.show()
 
-        import matplotlib.pyplot as plt
-
-def display_image_with_boxes(image, gt_boxes, gt_labels, pred_boxes, pred_scores, pred_labels):
+def display_image_with_dropdown(image, gt_boxes, gt_labels, pred_boxes, pred_scores, pred_labels, 
+                                iou_threshold=0.5, conf_threshold=1.0, image_width_scale=0.8,
+                                box_font_size=12, stats_font_size=14, pr_curve_font_size=12,
+                                scores_with_background=False, nms_threshold=1.0):
     """
-    Display an image with ground truth and predicted bounding boxes.
+    Display an image with ground truth and predicted bounding boxes, and sliders to adjust the thresholds.
 
     Parameters:
-    - image: The image to display.
+    - image: The image to display (NumPy array or PyTorch tensor).
     - gt_boxes: The ground truth bounding boxes.
     - gt_labels: The ground truth labels.
     - pred_boxes: The predicted bounding boxes.
     - pred_scores: The predicted scores.
     - pred_labels: The predicted labels.
+    - iou_threshold: The IoU threshold for color coding.
+    - conf_threshold: The confidence threshold for filtering.
+    - image_width_scale: Factor to scale the width of the displayed image (e.g., 0.8 for 80% width).
+    - box_font_size: Font size for scores and IoU displayed on boxes.
+    - stats_font_size: Font size for the statistics displayed on the image.
+    - pr_curve_font_size: Font size for labels and title in the PR curve.
+    - scores_with_background: If True, display scores in white font on a background matching the prediction box color.
+    - nms_threshold: Threshold for Non-Maximum Suppression (NMS). If > 0, NMS is applied.
     """
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.imshow(image)
+    if isinstance(image, torch.Tensor):
+        image = image.permute(1, 2, 0).cpu().numpy()
 
-    # Display ground truth boxes
-    if gt_boxes is not None:
-        for box, label in zip(gt_boxes, gt_labels):
-            x, y, w, h = box
-            rect = plt.Rectangle((x, y), w, h, fill=False, edgecolor='blue')
-            ax.add_patch(rect)
-            ax.text(x, y, label, color='blue', fontsize=8, bbox=dict(facecolor='white', alpha=0.5))
-
-    # Display predicted boxes
-    for box, score, label in zip(pred_boxes, pred_scores, pred_labels):
-        x, y, w, h = box
-        rect = plt.Rectangle((x, y), w, h, fill=False, edgecolor='red')
-        ax.add_patch(rect)
-        ax.text(x, y, f'{label}: {score:.2f}', color='red', fontsize=8, bbox=dict(facecolor='white', alpha=0.5))
-
-    plt.axis('off')
-    plt.show()
-
-def display_image_with_dropdown(image, gt_boxes, gt_labels, pred_boxes, pred_scores, pred_labels):
-    """
-    Display an image with ground truth and predicted bounding boxes, and a dropdown to select the class to display.
-
-    Parameters:
-    - image: The image to display.
-    - gt_boxes: The ground truth bounding boxes.
-    - gt_labels: The ground truth labels.
-    - pred_boxes: The predicted bounding boxes.
-    - pred_scores: The predicted scores.
-    - pred_labels: The predicted labels.
-    """
-    class_names = np.unique(np.concatenate((gt_labels, pred_labels)))
-    dropdown = widgets.Dropdown(options=class_names, description='Class:')
+    iou_slider = widgets.FloatSlider(min=0.05, max=0.95, step=0.05, value=iou_threshold, description='Detection IoU:')
+    conf_slider = widgets.FloatSlider(min=0, max=1, step=0.05, value=conf_threshold, description='Confidence Threshold:')
+    nms_slider = widgets.FloatSlider(min=0.0, max=1.0, step=0.05, value=nms_threshold, description='NMS Threshold:')
     output = widgets.Output()
 
-    def on_dropdown_change(change):
-        output.clear_output()
-        selected_class = change.new
-        selected_gt_boxes = gt_boxes[gt_labels == selected_class] if gt_boxes is not None else None
-        selected_pred_boxes = pred_boxes[pred_labels == selected_class]
-        selected_pred_scores = pred_scores[pred_labels == selected_class]
-        selected_pred_labels = pred_labels[pred_labels == selected_class]
+    def on_slider_change(change):
         with output:
-            display_image_with_boxes(image, selected_gt_boxes, [selected_class] * len(selected_gt_boxes),
-                                        selected_pred_boxes, selected_pred_scores, selected_pred_labels)
+            output.clear_output(wait=True)
+            display_image_with_boxes(image, gt_boxes, gt_labels, pred_boxes, pred_scores, pred_labels, 
+                                     iou_slider.value, conf_slider.value, image_width_scale,
+                                     box_font_size, stats_font_size, pr_curve_font_size,
+                                     scores_with_background, nms_slider.value)
 
-    dropdown.observe(on_dropdown_change, names='value')
-    on_dropdown_change({'new': class_names[0]})
+    iou_slider.observe(on_slider_change, names='value')
+    conf_slider.observe(on_slider_change, names='value')
+    nms_slider.observe(on_slider_change, names='value')
+    on_slider_change(None)
 
-    display(widgets.VBox([dropdown, output]))
+    display(widgets.VBox([iou_slider, conf_slider, nms_slider, output]))
 
-# Example usage:
-image = np.random.rand(100, 100, 3)
-gt_boxes = np.array([[10, 10, 20, 20], [30, 30, 40, 40]])
-gt_labels = np.array(['cat', 'dog'])
-pred_boxes = np.array([[15, 15, 25, 25], [35, 35, 45, 45]])
-pred_scores = np.array([0.9, 0.8])
-pred_labels = np.array(['cat', 'dog'])
-display_image_with_dropdown(image, gt_boxes, gt_labels, pred_boxes, pred_scores, pred_labels)
+def calculate_iou(box, gt_boxes):
+    """
+    Calculate the IoU (Intersection over Union) between a predicted box and a list of ground truth boxes.
+    """
+    x_min, y_min, width, height = box
+    x_max = x_min + width
+    y_max = y_min + height
+
+    gt_x_min = gt_boxes[:, 0]
+    gt_y_min = gt_boxes[:, 1]
+    gt_x_max = gt_boxes[:, 0] + gt_boxes[:, 2]
+    gt_y_max = gt_boxes[:, 1] + gt_boxes[:, 3]
+
+    inter_x_min = np.maximum(x_min, gt_x_min)
+    inter_y_min = np.maximum(y_min, gt_y_min)
+    inter_x_max = np.minimum(x_max, gt_x_max)
+    inter_y_max = np.minimum(y_max, gt_y_max)
+
+    inter_width = np.maximum(0, inter_x_max - inter_x_min)
+    inter_height = np.maximum(0, inter_y_max - inter_y_min)
+    intersection = inter_width * inter_height
+
+    box_area = width * height
+    gt_areas = (gt_x_max - gt_x_min) * (gt_y_max - gt_y_min)
+    union = box_area + gt_areas - intersection
+
+    return intersection / union
+
+def compute_precisions_recalls_mAP(adjusted_pred_boxes, pred_scores, pred_labels, adjusted_gt_boxes, gt_labels, confidence_thresholds, iou_threshold):
+    """
+    Compute precisions, recalls, and mAP for a given IoU threshold.
+    """
+    precisions = []
+    recalls = []
+    for conf in confidence_thresholds:
+        tp, fp = 0, 0
+        matched_gt_indices_conf = set()
+        for box, score, label in zip(adjusted_pred_boxes, pred_scores, pred_labels):
+            if score >= conf:
+                matching_indices = np.where(gt_labels == label)[0]
+                matching_gt_boxes = adjusted_gt_boxes[matching_indices]
+                max_iou = 0
+                max_iou_idx = -1
+                if len(matching_gt_boxes) > 0:
+                    iou_values = calculate_iou(box, matching_gt_boxes)
+                    max_iou_idx = np.argmax(iou_values)
+                    max_iou = iou_values[max_iou_idx]
+                    matched_gt_idx = matching_indices[max_iou_idx]
+                    if max_iou >= iou_threshold and matched_gt_idx not in matched_gt_indices_conf:
+                        tp += 1
+                        matched_gt_indices_conf.add(matched_gt_idx)
+                    else:
+                        fp += 1
+                else:
+                    fp += 1
+        fn = len(adjusted_gt_boxes) - len(matched_gt_indices_conf)
+        prec = tp / (tp + fp) if (tp + fp) > 0 else 1.0
+        rec = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        precisions.append(prec)
+        recalls.append(rec)
+    # Convert to numpy arrays
+    precisions = np.array(precisions)
+    recalls = np.array(recalls)
+    # Store the original precisions and recalls before adjustment
+    original_precisions = precisions.copy()
+    original_recalls = recalls.copy()
+    # Sort by recall
+    sorted_indices = np.argsort(recalls)
+    recalls = recalls[sorted_indices]
+    precisions = precisions[sorted_indices]
+    # Ensure precision is non-increasing
+    adjusted_precisions = precisions.copy()
+    for i in range(len(adjusted_precisions) - 2, -1, -1):
+        adjusted_precisions[i] = max(adjusted_precisions[i], adjusted_precisions[i + 1])
+    # Extend the arrays to cover Recall from 0 to 1
+    extended_recalls = np.concatenate(([0], recalls, [1]))
+    extended_precisions = np.concatenate(([adjusted_precisions[0]], adjusted_precisions, [0]))
+    # Compute mAP as area under the adjusted precision-recall curve
+    mAP = np.trapz(extended_precisions, extended_recalls)
+    return mAP, original_precisions, original_recalls, adjusted_precisions, recalls, extended_precisions, extended_recalls
+
+def compute_mAP(adjusted_pred_boxes, pred_scores, pred_labels, adjusted_gt_boxes, gt_labels, confidence_thresholds, iou_threshold):
+    """
+    Compute mAP for a given IoU threshold.
+    """
+    mAP, _, _, _, _, _, _ = compute_precisions_recalls_mAP(adjusted_pred_boxes, pred_scores, pred_labels,
+                                                            adjusted_gt_boxes, gt_labels, confidence_thresholds, iou_threshold)
+    return mAP
+
+def display_image_with_boxes(image, gt_boxes, gt_labels, pred_boxes, pred_scores, pred_labels, 
+                             iou_threshold, conf_threshold, image_width_scale,
+                             box_font_size, stats_font_size, pr_curve_font_size,
+                             scores_with_background, nms_threshold):
+    """
+    Display an image with ground truth and predicted bounding boxes, apply color coding based on thresholds,
+    display precision and recall, and plot the precision-recall curve.
+    """
+    from PIL import Image
+
+    # Resize the image
+    original_height, original_width, _ = image.shape
+    new_width = int(original_width * image_width_scale)
+    new_height = int(original_height * image_width_scale)
+    resized_image = np.array(Image.fromarray(image).resize((new_width, new_height), Image.LANCZOS))
+
+    # Scale the bounding boxes accordingly
+    width_scale = new_width / original_width
+    height_scale = new_height / original_height
+
+    adjusted_gt_boxes = gt_boxes.copy()
+    adjusted_gt_boxes[:, [0, 2]] *= width_scale  # x and width
+    adjusted_gt_boxes[:, [1, 3]] *= height_scale  # y and height
+
+    adjusted_pred_boxes = pred_boxes.copy()
+    adjusted_pred_boxes[:, [0, 2]] *= width_scale
+    adjusted_pred_boxes[:, [1, 3]] *= height_scale
+
+    # Convert adjusted_pred_boxes from (x, y, w, h) to (x1, y1, x2, y2) format
+    adjusted_pred_boxes_xyxy = adjusted_pred_boxes.copy()
+    adjusted_pred_boxes_xyxy[:, 2] = adjusted_pred_boxes_xyxy[:, 0] + adjusted_pred_boxes_xyxy[:, 2]  # x2 = x + w
+    adjusted_pred_boxes_xyxy[:, 3] = adjusted_pred_boxes_xyxy[:, 1] + adjusted_pred_boxes_xyxy[:, 3]  # y2 = y + h
+
+    # Apply NMS if nms_threshold > 0
+    if nms_threshold >= 0.0:
+        # Convert adjusted_pred_boxes and pred_scores to tensors
+        boxes_tensor = torch.tensor(adjusted_pred_boxes_xyxy, dtype=torch.float32)
+        scores_tensor = torch.tensor(pred_scores, dtype=torch.float32)
+        labels_tensor = torch.tensor(pred_labels, dtype=torch.int64)
+
+        keep_indices = []
+
+        # Apply NMS per class
+        unique_labels = torch.unique(labels_tensor)
+        for label in unique_labels:
+            label_mask = labels_tensor == label
+            boxes_label = boxes_tensor[label_mask]
+            scores_label = scores_tensor[label_mask]
+            indices = torch.where(label_mask)[0]
+
+            if boxes_label.shape[0] > 0:
+                keep = nms(boxes_label, scores_label, nms_threshold)
+                keep_indices.extend(indices[keep].tolist())
+
+        # Filter adjusted_pred_boxes, pred_scores, pred_labels
+        adjusted_pred_boxes = adjusted_pred_boxes[np.array(keep_indices)]
+        adjusted_pred_boxes_xyxy = adjusted_pred_boxes_xyxy[np.array(keep_indices)]
+        pred_scores = pred_scores[np.array(keep_indices)]
+        pred_labels = pred_labels[np.array(keep_indices)]
+
+    height, width, _ = resized_image.shape
+    fig_height = height / 80
+    fig_width = width / 80
+
+    # Create subplots: one for the image, one for the precision-recall curve
+    fig, (ax_image, ax_pr_curve) = plt.subplots(
+        1, 2, figsize=(fig_width * 1.2, fig_height),
+        gridspec_kw={'width_ratios': [3, 1], 'wspace': 0.05}
+    )
+    fig.patch.set_facecolor("white")
+    ax_image.imshow(resized_image)
+    ax_image.set_xlim([0, width])
+    ax_image.set_ylim([height, 0])
+
+    # Ground truth boxes
+    for x, y, w, h in adjusted_gt_boxes:
+        rect = plt.Rectangle((x, y), w, h, fill=False, edgecolor='cyan', linewidth=2)
+        ax_image.add_patch(rect)
+
+    # Filter predictions based on confidence threshold
+    filtered_indices = pred_scores >= conf_threshold
+    filtered_boxes = adjusted_pred_boxes[filtered_indices]
+    filtered_boxes_xyxy = adjusted_pred_boxes_xyxy[filtered_indices]
+    filtered_scores = pred_scores[filtered_indices]
+    filtered_labels = pred_labels[filtered_indices]
+
+    true_positive, false_positive, matched_gt_indices = 0, 0, set()
+
+    # Predicted boxes
+    for box, score, label in zip(filtered_boxes, filtered_scores, filtered_labels):
+        matching_indices = np.where(gt_labels == label)[0]
+        matching_gt_boxes = adjusted_gt_boxes[matching_indices]
+        max_iou = 0
+        max_iou_idx = -1
+        matched_gt_idx = -1
+        if len(matching_gt_boxes) > 0:
+            iou_values = calculate_iou(box, matching_gt_boxes)
+            max_iou_idx = np.argmax(iou_values)
+            max_iou = iou_values[max_iou_idx]
+            matched_gt_idx = matching_indices[max_iou_idx]
+
+            if max_iou >= iou_threshold and matched_gt_idx not in matched_gt_indices:
+                color = 'blue'
+                true_positive += 1
+                matched_gt_indices.add(matched_gt_idx)
+            else:
+                color = 'purple'
+                false_positive += 1
+        else:
+            color = 'purple'
+            false_positive += 1
+
+        x, y, w, h = box
+        rect = plt.Rectangle((x, y), w, h, fill=False, edgecolor=color, linewidth=2)
+        ax_image.add_patch(rect)
+
+        # Prepare text properties based on the new option
+        text_color = 'white' if scores_with_background else color
+        bbox_props = None
+        if scores_with_background:
+            bbox_props = dict(boxstyle="round,pad=0.2", fc=color, ec="none", alpha=0.7)
+
+        ax_image.text(
+            x, y - 4, f'{score:.2f}, IoU: {max_iou:.2f}',
+            color=text_color,
+            fontsize=box_font_size,
+            horizontalalignment='left',
+            bbox=bbox_props
+        )
+
+    false_negative = len(adjusted_gt_boxes) - len(matched_gt_indices)
+
+    precision = true_positive / (true_positive + false_positive) if (true_positive + false_positive) > 0 else 0
+    recall = true_positive / (true_positive + false_negative) if (true_positive + false_negative) > 0 else 0
+
+    # Display precision and recall with adjustable fonts
+    ax_image.text(0.00, 0.99, f'TP: {true_positive:<3} FN: {false_negative:<3} Recall: {recall:.2f}',
+                  verticalalignment='bottom', horizontalalignment='left', transform=ax_image.transAxes, color='black', fontsize=stats_font_size)
+    ax_image.text(0.00, 0.94, f'FP: {false_positive:<3} TN: 0',
+                  verticalalignment='bottom', horizontalalignment='left', transform=ax_image.transAxes, color='black', fontsize=stats_font_size)
+    ax_image.text(0.00, 0.89, f'Precision: {precision:.2f}',
+                  verticalalignment='bottom', horizontalalignment='left', transform=ax_image.transAxes, color='black', fontsize=stats_font_size)
+
+    # Calculate precision and recall at various confidence thresholds for the current IoU threshold
+    confidence_thresholds = np.arange(0.0, 1.01, 0.05)
+
+    # For mAP calculation, use the adjusted predictions after NMS
+    mAP_current_iou, original_precisions, original_recalls, adjusted_precisions, recalls, extended_precisions, extended_recalls = compute_precisions_recalls_mAP(
+        adjusted_pred_boxes, pred_scores, pred_labels, adjusted_gt_boxes, gt_labels, confidence_thresholds, iou_threshold)
+
+    # Plot adjusted PR curve as a thicker line
+    ax_pr_curve.plot(extended_recalls, extended_precisions, marker='.', linewidth=2, markersize=6, label='Adjusted', color='blue')
+
+    # Plot original PR curve as a thinner line
+    ax_pr_curve.plot(original_recalls, original_precisions, marker='.', linewidth=1.5, markersize=4, label='Original', color='grey')
+
+    # Shade the area under the adjusted PR curve
+    ax_pr_curve.fill_between(extended_recalls, extended_precisions, alpha=0.4, color='yellow')
+
+    # Compute mAP@50:95
+    iou_thresholds = np.arange(0.5, 0.96, 0.05)
+    mAPs = []
+    for iou_thr in iou_thresholds:
+        mAP_iou = compute_mAP(adjusted_pred_boxes, pred_scores, pred_labels,
+                              adjusted_gt_boxes, gt_labels, confidence_thresholds, iou_thr)
+        mAPs.append(mAP_iou)
+    mAP_50_95 = np.mean(mAPs)
+
+    # Change the title to include mAP@current_iou and mAP@50:95
+    ax_pr_curve.set_title(f'mAP@{int(iou_threshold*100)}: {mAP_current_iou:.2f}, mAP@50:95: {mAP_50_95:.2f}', fontsize=pr_curve_font_size + 2)
+
+    # Make the aspect ratio square
+    ax_pr_curve.set_aspect('equal', adjustable='box')
+
+    # Set axis labels
+    ax_pr_curve.set_xlabel('Recall', fontsize=pr_curve_font_size)
+    ax_pr_curve.set_ylabel('Precision', fontsize=pr_curve_font_size)
+
+    # Set axis limits to always be 0 to 1.05
+    ax_pr_curve.set_xlim([0.0, 1.05])
+    ax_pr_curve.set_ylim([0.0, 1.05])
+
+    ax_pr_curve.grid(True)
+
+    # Determine legend location based on mAP value
+    if mAP_current_iou > 0.5:
+        legend_loc = 'lower left'
+    else:
+        legend_loc = 'upper right'
+
+    # Add a legend
+    ax_pr_curve.legend(loc=legend_loc, fontsize=pr_curve_font_size)
+
+    # Plot the orange dot using the precision and recall from the image stats
+    current_precision = precision
+    current_recall = recall
+    ax_pr_curve.plot(current_recall, current_precision, marker='o', color='orange', markersize=10)
+
+    ax_image.axis('off')
+    # Use constrained_layout instead of tight_layout to avoid warning
+    fig.set_constrained_layout(True)
+    plt.show()
+
+def load_annotations(json_file):
+    """
+    Load annotations from a JSON file and return values as numpy arrays.
+    """
+    with open(json_file, 'r') as file:
+        data = json.load(file)
+
+    gt_boxes = np.array(data["gt_boxes"])
+    gt_labels = np.array(data["gt_labels"])
+    pred_boxes = np.array(data["pred_boxes"])
+    pred_labels = np.array(data["pred_labels"])
+    pred_scores = np.array(data["pred_scores"])
+
+    return gt_boxes, gt_labels, pred_boxes, pred_labels, pred_scores
