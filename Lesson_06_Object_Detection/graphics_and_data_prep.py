@@ -11,12 +11,16 @@ from matplotlib.patches import Rectangle
 import matplotlib.pyplot as plt
 import requests
 from torchvision import ops
+from torchvision.io import read_image
 import ipywidgets as widgets
 from IPython.display import display, clear_output
 import ipywidgets as widgets
 import json
 import pandas as pd
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
+from ultralytics import YOLO
+import yaml
+from PIL import Image
 
 def train_one_epoch(model, optimizer, train_loader, val_loader, device, map_metric, scheduler, step_per_batch=False):
     '''
@@ -194,6 +198,7 @@ def download_pennfudanped(target_dir: Path) -> None:
     zip_path.unlink()
     print("Zip file deleted. PennFudanPed dataset is ready.")
 
+
 def prepare_penn_fudan_yolo(target_dir: Path, seed=42):
     # Define paths for the dataset and processed directories
     dataset_dir = target_dir / "PennFudanPed"
@@ -207,363 +212,85 @@ def prepare_penn_fudan_yolo(target_dir: Path, seed=42):
     # Step 2: Download and unzip the dataset if necessary
     download_pennfudanped(target_dir)
 
-    # Step 3: Copy the extracted dataset to PennFudanPedYOLO
-    shutil.copytree(dataset_dir, yolo_dataset_dir)
-    dataset_dir = yolo_dataset_dir
-
-    # Define paths for images, annotations, masks, and labels
+    # Step 3: Create the YOLO directory structure
     images_dir = dataset_dir / "PNGImages"
     annotations_dir = dataset_dir / "Annotation"
-    masks_dir = dataset_dir / "PedMasks"
-    labels_dir = dataset_dir / "labels"
-    
-    # Create labels directory for YOLO annotations
-    labels_dir.mkdir(exist_ok=True)
-    
-    # Step 4: Convert annotations to YOLO format and store in labels directory
+    labels_dir = yolo_dataset_dir / "labels"
+    train_images_dir = yolo_dataset_dir / "images" / "train"
+    val_images_dir = yolo_dataset_dir / "images" / "val"
+    train_labels_dir = yolo_dataset_dir / "labels" / "train"
+    val_labels_dir = yolo_dataset_dir / "labels" / "val"
+
+    train_images_dir.mkdir(parents=True, exist_ok=True)
+    val_images_dir.mkdir(parents=True, exist_ok=True)
+    train_labels_dir.mkdir(parents=True, exist_ok=True)
+    val_labels_dir.mkdir(parents=True, exist_ok=True)
+
+    # Step 4: Convert annotations to YOLO format
     def convert_annotation_to_yolo(annotation_file, image_width, image_height):
         yolo_annotations = []
-        
+
         with annotation_file.open('r') as file:
             lines = file.readlines()
-            
+
             for line in lines:
                 if "Bounding box" in line:
                     # Extract coordinates using regular expressions
                     match = re.search(r"\((\d+), (\d+)\) - \((\d+), (\d+)\)", line)
                     if match:
                         Xmin, Ymin, Xmax, Ymax = map(int, match.groups())
-                        
+
                         # Convert to YOLO format
                         x_center = (Xmin + Xmax) / 2 / image_width
                         y_center = (Ymin + Ymax) / 2 / image_height
                         width = (Xmax - Xmin) / image_width
                         height = (Ymax - Ymin) / image_height
                         yolo_annotations.append(f"0 {x_center} {y_center} {width} {height}\n")
-                        
+
         return yolo_annotations
 
-    # Process all annotation files and save in the labels folder
-    for annotation_file in annotations_dir.glob("*.txt"):
-        image_filename = annotation_file.stem + ".png"
-        image_path = images_dir / image_filename
-        
-        if image_path.exists():
-            # Read image dimensions
-            image = cv2.imread(str(image_path))
-            h, w = image.shape[:2]
-            
-            # Convert annotation to YOLO format
-            yolo_data = convert_annotation_to_yolo(annotation_file, w, h)
-            
-            # Save YOLO annotation file
-            yolo_label_path = labels_dir / annotation_file.name
-            with yolo_label_path.open('w') as f:
-                f.writelines(yolo_data)
-
-    # Step 5: Split dataset into train and val subsets
+    # Step 5: Process all annotation files and split dataset
     random.seed(seed)
     image_files = sorted([f for f in images_dir.glob("*.png")])
     random.shuffle(image_files)
-    
+
     split_index = int(0.8 * len(image_files))
     train_files = {f.stem for f in image_files[:split_index]}  # Use base filenames for faster lookups
     val_files = {f.stem for f in image_files[split_index:]}
-    
-    # Create new train/val directory structure with subfolders
-    for split in ["train", "val"]:
-        (dataset_dir / split / "images").mkdir(parents=True, exist_ok=True)
-        (dataset_dir / split / "annotations").mkdir(parents=True, exist_ok=True)
-        (dataset_dir / split / "masks").mkdir(parents=True, exist_ok=True)
-        (dataset_dir / split / "labels").mkdir(parents=True, exist_ok=True)
-    
-    # Helper function to move files
-    def move_files(files, src_dir, train_dir, val_dir, is_mask=False):
-        for file in files:
-            base_name = file.stem
-            if is_mask:
-                base_name = base_name.replace("_mask", "")  # Remove "_mask" to match with image names
-            
-            if base_name in train_files:
-                dst_dir = train_dir
-            elif base_name in val_files:
-                dst_dir = val_dir
-            else:
-                continue  # Skip files not in train or val sets
-            
-            src_file = src_dir / file.name
-            dst_file = dst_dir / file.name
-            
-            # Move the file if it exists
-            if src_file.exists():
-                shutil.move(str(src_file), str(dst_file))
 
-    # Move images, annotations, masks, and labels based on the split
-    move_files(image_files, images_dir, dataset_dir / "train" / "images", dataset_dir / "val" / "images")
-    move_files(annotations_dir.glob("*.txt"), annotations_dir, dataset_dir / "train" / "annotations", dataset_dir / "val" / "annotations")
-    move_files(masks_dir.glob("*.png"), masks_dir, dataset_dir / "train" / "masks", dataset_dir / "val" / "masks", is_mask=True)
-    move_files(labels_dir.glob("*.txt"), labels_dir, dataset_dir / "train" / "labels", dataset_dir / "val" / "labels")
-    
-    # Step 6: Remove original directories
-    shutil.rmtree(images_dir)
-    shutil.rmtree(annotations_dir)
-    shutil.rmtree(masks_dir)
-    shutil.rmtree(labels_dir)
+    for image_path in image_files:
+        # Read image dimensions
+        image = cv2.imread(str(image_path))
+        h, w = image.shape[:2]
 
-    print("Dataset preparation complete, and original directories removed!")
-
-'''
-def prepare_penn_fudan_yolo(target_dir: Path, seed=42):
-    # Define paths for the dataset and processed directories
-    dataset_url = "https://www.cis.upenn.edu/~jshi/ped_html/PennFudanPed.zip"
-    dataset_zip = target_dir / "PennFudanPed.zip"
-    dataset_dir = target_dir / "PennFudanPed"
-    yolo_dataset_dir = target_dir / "PennFudanPedYOLO"
-
-    # Step 1: Check if PennFudanPedYOLO already exists
-    if yolo_dataset_dir.exists():
-        print("PennFudanPedYOLO already exists. Stopping preparation.")
-        return
-
-    # Step 2: Download and unzip the dataset if not already downloaded
-    if not dataset_zip.exists():
-        urllib.request.urlretrieve(dataset_url, dataset_zip)
-    
-    # Unzip dataset if not already unzipped
-    if not dataset_dir.exists():
-        with zipfile.ZipFile(dataset_zip, 'r') as zip_ref:
-            zip_ref.extractall(target_dir)
-
-    # Step 3: Copy the extracted dataset to PennFudanPedYOLO
-    shutil.copytree(dataset_dir, yolo_dataset_dir)
-    dataset_dir = yolo_dataset_dir
-
-    # Define paths for images, annotations, masks, and labels
-    images_dir = dataset_dir / "PNGImages"
-    annotations_dir = dataset_dir / "Annotation"
-    masks_dir = dataset_dir / "PedMasks"
-    labels_dir = dataset_dir / "labels"
-    
-    # Create labels directory for YOLO annotations
-    labels_dir.mkdir(exist_ok=True)
-    
-    # Step 4: Convert annotations to YOLO format and store in labels directory
-    def convert_annotation_to_yolo(annotation_file, image_width, image_height):
-        yolo_annotations = []
-        
-        with annotation_file.open('r') as file:
-            lines = file.readlines()
-            
-            for line in lines:
-                if "Bounding box" in line:
-                    # Extract coordinates using regular expressions
-                    match = re.search(r"\((\d+), (\d+)\) - \((\d+), (\d+)\)", line)
-                    if match:
-                        Xmin, Ymin, Xmax, Ymax = map(int, match.groups())
-                        
-                        # Convert to YOLO format
-                        x_center = (Xmin + Xmax) / 2 / image_width
-                        y_center = (Ymin + Ymax) / 2 / image_height
-                        width = (Xmax - Xmin) / image_width
-                        height = (Ymax - Ymin) / image_height
-                        yolo_annotations.append(f"0 {x_center} {y_center} {width} {height}\n")
-                        
-        return yolo_annotations
-
-    # Process all annotation files and save in the labels folder
-    for annotation_file in annotations_dir.glob("*.txt"):
-        image_filename = annotation_file.stem + ".png"
-        image_path = images_dir / image_filename
-        
-        if image_path.exists():
-            # Read image dimensions
-            image = cv2.imread(str(image_path))
-            h, w = image.shape[:2]
-            
-            # Convert annotation to YOLO format
+        # Convert annotation to YOLO format
+        annotation_file = annotations_dir / (image_path.stem + ".txt")
+        if annotation_file.exists():
             yolo_data = convert_annotation_to_yolo(annotation_file, w, h)
-            
-            # Save YOLO annotation file
-            yolo_label_path = labels_dir / annotation_file.name
+
+            # Save YOLO annotation
+            label_dir = train_labels_dir if image_path.stem in train_files else val_labels_dir
+            yolo_label_path = label_dir / (image_path.stem + ".txt")
             with yolo_label_path.open('w') as f:
                 f.writelines(yolo_data)
 
-    # Step 5: Split dataset into train and val subsets
-    random.seed(seed)
-    image_files = sorted([f for f in images_dir.glob("*.png")])
-    random.shuffle(image_files)
-    
-    split_index = int(0.8 * len(image_files))
-    train_files = {f.stem for f in image_files[:split_index]}  # Use base filenames for faster lookups
-    val_files = {f.stem for f in image_files[split_index:]}
-    
-    # Create new train/val directory structure with subfolders
-    for split in ["train", "val"]:
-        (dataset_dir / split / "images").mkdir(parents=True, exist_ok=True)
-        (dataset_dir / split / "annotations").mkdir(parents=True, exist_ok=True)
-        (dataset_dir / split / "masks").mkdir(parents=True, exist_ok=True)
-        (dataset_dir / split / "labels").mkdir(parents=True, exist_ok=True)
-    
-    # Helper function to move files
-    def move_files(files, src_dir, train_dir, val_dir, is_mask=False):
-        for file in files:
-            base_name = file.stem
-            if is_mask:
-                base_name = base_name.replace("_mask", "")  # Remove "_mask" to match with image names
-            
-            if base_name in train_files:
-                dst_dir = train_dir
-            elif base_name in val_files:
-                dst_dir = val_dir
-            else:
-                continue  # Skip files not in train or val sets
-            
-            src_file = src_dir / file.name
-            dst_file = dst_dir / file.name
-            
-            # Move the file if it exists
-            if src_file.exists():
-                shutil.move(str(src_file), str(dst_file))
+        # Move the image to the appropriate folder
+        image_dir = train_images_dir if image_path.stem in train_files else val_images_dir
+        shutil.copy(image_path, image_dir / image_path.name)
 
-    # Move images, annotations, masks, and labels based on the split
-    move_files(image_files, images_dir, dataset_dir / "train" / "images", dataset_dir / "val" / "images")
-    move_files(annotations_dir.glob("*.txt"), annotations_dir, dataset_dir / "train" / "annotations", dataset_dir / "val" / "annotations")
-    move_files(masks_dir.glob("*.png"), masks_dir, dataset_dir / "train" / "masks", dataset_dir / "val" / "masks", is_mask=True)
-    move_files(labels_dir.glob("*.txt"), labels_dir, dataset_dir / "train" / "labels", dataset_dir / "val" / "labels")
-    
-    # Step 6: Remove original directories
-    shutil.rmtree(images_dir)
-    shutil.rmtree(annotations_dir)
-    shutil.rmtree(masks_dir)
-    shutil.rmtree(labels_dir)
+    # Step 6: Create dataset.yaml file
+    yaml_file = yolo_dataset_dir / "dataset.yaml"
+    yaml_data = {
+        "train": str(train_images_dir),
+        "val": str(val_images_dir),
+        "nc": 1,
+        "names": ["person"]
+    }
 
-    print("Dataset preparation complete, and original directories removed!")
+    with yaml_file.open('w') as f:
+        yaml.dump(yaml_data, f)
 
-def prepare_penn_fudan_orig(target_dir: Path, seed=42):
-    # Define paths for the dataset and processed directories
-    dataset_url = "https://www.cis.upenn.edu/~jshi/ped_html/PennFudanPed.zip"
-    dataset_zip = target_dir / "PennFudanPed.zip"
-    dataset_dir = target_dir / "PennFudanPed"
-    
-    # Check if the dataset has already been processed
-    processed_dir = dataset_dir / "train" / "images"
-    if processed_dir.exists():
-        print("Processed PennFudan dataset already exists. Skipping preparation.")
-        return
-
-    # Step 1: Download and unzip the dataset if not already downloaded
-    if not dataset_zip.exists():
-        urllib.request.urlretrieve(dataset_url, dataset_zip)
-    
-    # Unzip dataset if not already unzipped
-    if not dataset_dir.exists():
-        with zipfile.ZipFile(dataset_zip, 'r') as zip_ref:
-            zip_ref.extractall(target_dir)
-    
-    # Define paths for images, annotations, masks, and labels
-    images_dir = dataset_dir / "PNGImages"
-    annotations_dir = dataset_dir / "Annotation"
-    masks_dir = dataset_dir / "PedMasks"
-    labels_dir = dataset_dir / "labels"
-    
-    # Create labels directory for YOLO annotations
-    labels_dir.mkdir(exist_ok=True)
-    
-    # Step 2: Convert annotations to YOLO format and store in labels directory
-    def convert_annotation_to_yolo(annotation_file, image_width, image_height):
-        yolo_annotations = []
-        
-        with annotation_file.open('r') as file:
-            lines = file.readlines()
-            
-            for line in lines:
-                if "Bounding box" in line:
-                    # Extract coordinates using regular expressions
-                    match = re.search(r"\((\d+), (\d+)\) - \((\d+), (\d+)\)", line)
-                    if match:
-                        Xmin, Ymin, Xmax, Ymax = map(int, match.groups())
-                        
-                        # Convert to YOLO format
-                        x_center = (Xmin + Xmax) / 2 / image_width
-                        y_center = (Ymin + Ymax) / 2 / image_height
-                        width = (Xmax - Xmin) / image_width
-                        height = (Ymax - Ymin) / image_height
-                        yolo_annotations.append(f"0 {x_center} {y_center} {width} {height}\n")
-                        
-        return yolo_annotations
-
-    # Process all annotation files and save in the labels folder
-    for annotation_file in annotations_dir.glob("*.txt"):
-        image_filename = annotation_file.stem + ".png"
-        image_path = images_dir / image_filename
-        
-        if image_path.exists():
-            # Read image dimensions
-            image = cv2.imread(str(image_path))
-            h, w = image.shape[:2]
-            
-            # Convert annotation to YOLO format
-            yolo_data = convert_annotation_to_yolo(annotation_file, w, h)
-            
-            # Save YOLO annotation file
-            yolo_label_path = labels_dir / annotation_file.name
-            with yolo_label_path.open('w') as f:
-                f.writelines(yolo_data)
-
-    # Step 3: Split dataset into train and val subsets
-    random.seed(seed)
-    image_files = sorted([f for f in images_dir.glob("*.png")])
-    random.shuffle(image_files)
-    
-    split_index = int(0.8 * len(image_files))
-    train_files = {f.stem for f in image_files[:split_index]}  # Use base filenames for faster lookups
-    val_files = {f.stem for f in image_files[split_index:]}
-    
-    # Create new train/val directory structure with subfolders
-    for split in ["train", "val"]:
-        (dataset_dir / split / "images").mkdir(parents=True, exist_ok=True)
-        (dataset_dir / split / "annotations").mkdir(parents=True, exist_ok=True)
-        (dataset_dir / split / "masks").mkdir(parents=True, exist_ok=True)
-        (dataset_dir / split / "labels").mkdir(parents=True, exist_ok=True)
-    
-    # Helper function to move files
-    def move_files(files, src_dir, train_dir, val_dir, is_mask=False):
-        for file in files:
-            base_name = file.stem
-            if is_mask:
-                base_name = base_name.replace("_mask", "")  # Remove "_mask" to match with image names
-            
-            if base_name in train_files:
-                dst_dir = train_dir
-            elif base_name in val_files:
-                dst_dir = val_dir
-            else:
-                continue  # Skip files not in train or val sets
-            
-            src_file = src_dir / file.name
-            dst_file = dst_dir / file.name
-            
-            # Move the file if it exists
-            if src_file.exists():
-                shutil.move(str(src_file), str(dst_file))
-
-    # Move images, annotations, masks, and labels based on the split
-    move_files(image_files, images_dir, dataset_dir / "train" / "images", dataset_dir / "val" / "images")
-    move_files(annotations_dir.glob("*.txt"), annotations_dir, dataset_dir / "train" / "annotations", dataset_dir / "val" / "annotations")
-    move_files(masks_dir.glob("*.png"), masks_dir, dataset_dir / "train" / "masks", dataset_dir / "val" / "masks", is_mask=True)
-    move_files(labels_dir.glob("*.txt"), labels_dir, dataset_dir / "train" / "labels", dataset_dir / "val" / "labels")
-    
-    # Step 4: Remove original directories
-    shutil.rmtree(images_dir)
-    shutil.rmtree(annotations_dir)
-    shutil.rmtree(masks_dir)
-    shutil.rmtree(labels_dir)
-
-    print("Dataset preparation complete, and original directories removed!")
-
-
-    # Helper function to display boxes on an axis
-'''
+    print("Dataset preparation complete.")
 
 def overlay_masks(image: np.ndarray, mask: np.ndarray, color: tuple[int, int, int], thickness: int = 1) -> np.ndarray:
     """
@@ -838,10 +565,102 @@ def display_images_and_boxes(dataset, num_samples=3, model=None, min_confidence=
         plt.axis('off')
         plt.show()
 
+
+def display_yolo_predictions(yaml_file, model, num_samples=3, imgsz=640, conf=0.25,
+                              indices=None, figsize=(6, 6), show_confidence=True, max_iou_threshold=0.5):
+    """
+    Display random samples from a dataset defined in the dataset.yaml file with predictions from a fine-tuned YOLO model.
+    Predictions are processed using the same resizing and postprocessing pipeline as model.val.
+
+    Parameters:
+    - yaml_file: Path to the dataset.yaml file containing dataset configuration.
+    - model: A YOLO model instance.
+    - num_samples: The number of random samples to display (default: 3).
+    - imgsz: Image size to resize for inference (default: 640).
+    - conf: Confidence threshold for predictions (default: 0.25).
+    - indices (list, optional): The indices of the samples to display. If None, random samples will be selected.
+    - figsize (tuple, optional): The size of the figure (default: (6,6)).
+    - show_confidence (bool): Whether to show confidence scores on predicted boxes.
+    - max_iou_threshold (float): Maximum IoU threshold for NMS filtering (default: 0.5).
+    """
+    # Load the dataset from the yaml file
+    with open(yaml_file, 'r') as file:
+        dataset_info = yaml.safe_load(file)
+
+    val_images_path = dataset_info.get('val', [])
+    if isinstance(val_images_path, str):
+        # If 'val' is a directory, get all image paths
+        val_images_path = [os.path.join(val_images_path, fname) for fname in os.listdir(val_images_path)
+                           if fname.endswith(('.jpg', '.png', '.jpeg'))]
+
+    if indices is None:
+        indices = random.sample(range(len(val_images_path)), num_samples)
+
+    for idx in indices:
+        # Get the image path
+        image_path = val_images_path[idx]
+
+        # Perform prediction on the image (mimics model.val)
+        results = model.predict(source=image_path, imgsz=imgsz, conf=conf, iou=max_iou_threshold, verbose=False)
+        predictions = results[0].boxes  # Postprocessed predictions
+        pred_boxes = predictions.xyxy.cpu().numpy()  # Bounding box coordinates
+        pred_scores = predictions.conf.cpu().numpy()  # Confidence scores
+
+        # Load the image for visualization
+        img = Image.open(image_path).convert('RGB')
+        img_array = np.array(img)
+
+        # Load ground truth boxes
+        label_path = image_path.replace('images', 'labels').replace('.jpg', '.txt').replace('.png', '.txt')
+        with open(label_path, 'r') as file:
+            gt_boxes = []
+            for line in file:
+                class_id, x_center, y_center, width, height = map(float, line.strip().split())
+                x1 = (x_center - width / 2) * img_array.shape[1]
+                y1 = (y_center - height / 2) * img_array.shape[0]
+                x2 = (x_center + width / 2) * img_array.shape[1]
+                y2 = (y_center + height / 2) * img_array.shape[0]
+                gt_boxes.append([x1, y1, x2, y2])
+            gt_boxes = np.array(gt_boxes)
+
+        # Visualize the predictions and ground truth
+        fig, ax = plt.subplots(1, figsize=figsize)
+        ax.imshow(img_array)
+
+        # Plot predicted boxes in orange
+        for box, score in zip(pred_boxes, pred_scores):
+            x1, y1, x2, y2 = box
+            rect = Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=2, edgecolor='orange', facecolor='none')
+            ax.add_patch(rect)
+            if show_confidence:
+                ax.text(x1, y1, f"{score:.2f}", color='white', fontsize=8, bbox=dict(facecolor='orange', alpha=0.7))
+
+        # Plot ground truth boxes in blue
+        for box in gt_boxes:
+            x1, y1, x2, y2 = box
+            rect = Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=2, edgecolor='blue', facecolor='none')
+            ax.add_patch(rect)
+
+        # Add legend
+        handles = [Rectangle((0, 0), 1, 1, edgecolor="orange", facecolor='none', label="Prediction"),
+                   Rectangle((0, 0), 1, 1, edgecolor="blue", facecolor='none', label="Ground Truth")]
+        ax.legend(handles=handles)
+        ax.axis('off')
+        plt.show()
+
+
+def mAP_widget():
+    # Load image and annotations
+    image = read_image("./pictures/stick_peds.png")
+    gt_boxes, gt_labels, pred_boxes, pred_labels, pred_scores = load_annotations("./pictures/stick_peds.json")
+
+    # Display image with interactive sliders and adjustable font sizes
+    display_image_with_dropdown(image, gt_boxes, gt_labels, pred_boxes, pred_scores, pred_labels)
+
 def display_image_with_dropdown(image, gt_boxes, gt_labels, pred_boxes, pred_scores, pred_labels, 
-                                iou_threshold=0.5, conf_threshold=1.0, image_width_scale=0.8,
+                                detection_iou=0.5, conf_threshold=1.0, image_width_scale=0.8,
                                 box_font_size=12, stats_font_size=14, pr_curve_font_size=12,
-                                scores_with_background=False, nms_threshold=1.0):
+                                scores_with_background=False, iou_max_overlap=1.0):
     """
     Display an image with ground truth and predicted bounding boxes, and sliders to adjust the thresholds.
 
@@ -852,21 +671,39 @@ def display_image_with_dropdown(image, gt_boxes, gt_labels, pred_boxes, pred_sco
     - pred_boxes: The predicted bounding boxes.
     - pred_scores: The predicted scores.
     - pred_labels: The predicted labels.
-    - iou_threshold: The IoU threshold for color coding.
+    - detection_iou: The IoU threshold for color coding.
     - conf_threshold: The confidence threshold for filtering.
     - image_width_scale: Factor to scale the width of the displayed image (e.g., 0.8 for 80% width).
     - box_font_size: Font size for scores and IoU displayed on boxes.
     - stats_font_size: Font size for the statistics displayed on the image.
     - pr_curve_font_size: Font size for labels and title in the PR curve.
     - scores_with_background: If True, display scores in white font on a background matching the prediction box color.
-    - nms_threshold: Threshold for Non-Maximum Suppression (NMS). If > 0, NMS is applied.
+    - iou_max_overlap: Threshold for Non-Maximum Suppression (NMS). If > 0, NMS is applied.
     """
     if isinstance(image, torch.Tensor):
         image = image.permute(1, 2, 0).cpu().numpy()
 
-    iou_slider = widgets.FloatSlider(min=0.05, max=0.95, step=0.05, value=iou_threshold, description='Detection IoU:')
-    conf_slider = widgets.FloatSlider(min=0, max=1, step=0.05, value=conf_threshold, description='Confidence Threshold:')
-    nms_slider = widgets.FloatSlider(min=0.0, max=1.0, step=0.05, value=nms_threshold, description='NMS Threshold:')
+    #iou_slider = widgets.FloatSlider(min=0.05, max=0.95, step=0.05, value=detection_iou, description='Detection IoU:')
+    #conf_slider = widgets.FloatSlider(min=0, max=1, step=0.05, value=conf_threshold, description='Confidence Threshold:')
+    #nms_slider = widgets.FloatSlider(min=0.0, max=1.0, step=0.05, value=iou_max_overlap, description='IOU Max Overlap:')
+    #output = widgets.Output()
+
+    # Define a wider layout for the sliders
+    slider_layout = widgets.Layout(width='500px')  # Adjust the width as needed
+    slider_style = {'description_width': '150px'}  # Adjust the width for descriptions
+
+    iou_slider = widgets.FloatSlider(
+        min=0.05, max=0.95, step=0.05, value=detection_iou, 
+        description='Detection IoU:', layout=slider_layout, style=slider_style
+    )
+    conf_slider = widgets.FloatSlider(
+        min=0, max=1, step=0.05, value=conf_threshold, 
+        description='Min Confidence:', layout=slider_layout, style=slider_style
+    )
+    nms_slider = widgets.FloatSlider(
+        min=0.0, max=1.0, step=0.05, value=iou_max_overlap, 
+        description='NMS IOU Max Overlap:', layout=slider_layout, style=slider_style
+    )
     output = widgets.Output()
 
     def on_slider_change(change):
@@ -912,7 +749,7 @@ def calculate_iou(box, gt_boxes):
 
     return intersection / union
 
-def compute_precisions_recalls_mAP(adjusted_pred_boxes, pred_scores, pred_labels, adjusted_gt_boxes, gt_labels, confidence_thresholds, iou_threshold):
+def compute_precisions_recalls_mAP(adjusted_pred_boxes, pred_scores, pred_labels, adjusted_gt_boxes, gt_labels, confidence_thresholds, detection_iou):
     """
     Compute precisions, recalls, and mAP for a given IoU threshold.
     """
@@ -932,7 +769,7 @@ def compute_precisions_recalls_mAP(adjusted_pred_boxes, pred_scores, pred_labels
                     max_iou_idx = np.argmax(iou_values)
                     max_iou = iou_values[max_iou_idx]
                     matched_gt_idx = matching_indices[max_iou_idx]
-                    if max_iou >= iou_threshold and matched_gt_idx not in matched_gt_indices_conf:
+                    if max_iou >= detection_iou and matched_gt_idx not in matched_gt_indices_conf:
                         tp += 1
                         matched_gt_indices_conf.add(matched_gt_idx)
                     else:
@@ -965,16 +802,16 @@ def compute_precisions_recalls_mAP(adjusted_pred_boxes, pred_scores, pred_labels
     mAP = np.trapz(extended_precisions, extended_recalls)
     return mAP, original_precisions, original_recalls, adjusted_precisions, recalls, extended_precisions, extended_recalls
 
-def compute_mAP(adjusted_pred_boxes, pred_scores, pred_labels, adjusted_gt_boxes, gt_labels, confidence_thresholds, iou_threshold):
+def compute_mAP(adjusted_pred_boxes, pred_scores, pred_labels, adjusted_gt_boxes, gt_labels, confidence_thresholds, detection_iou):
     """
     Compute mAP for a given IoU threshold.
     """
     mAP, _, _, _, _, _, _ = compute_precisions_recalls_mAP(adjusted_pred_boxes, pred_scores, pred_labels,
-                                                            adjusted_gt_boxes, gt_labels, confidence_thresholds, iou_threshold)
+                                                            adjusted_gt_boxes, gt_labels, confidence_thresholds, detection_iou)
     return mAP
 
 def display_image_with_boxes(image, gt_boxes, gt_labels, pred_boxes, pred_scores, pred_labels, 
-                             iou_threshold, conf_threshold, image_width_scale,
+                             detection_iou, conf_threshold, image_width_scale,
                              box_font_size, stats_font_size, pr_curve_font_size,
                              scores_with_background, nms_threshold):
     """
@@ -1024,7 +861,7 @@ def display_image_with_boxes(image, gt_boxes, gt_labels, pred_boxes, pred_scores
             indices = torch.where(label_mask)[0]
 
             if boxes_label.shape[0] > 0:
-                keep = nms(boxes_label, scores_label, nms_threshold)
+                keep = ops.nms(boxes_label, scores_label, nms_threshold)
                 keep_indices.extend(indices[keep].tolist())
 
         # Filter adjusted_pred_boxes, pred_scores, pred_labels
@@ -1074,7 +911,7 @@ def display_image_with_boxes(image, gt_boxes, gt_labels, pred_boxes, pred_scores
             max_iou = iou_values[max_iou_idx]
             matched_gt_idx = matching_indices[max_iou_idx]
 
-            if max_iou >= iou_threshold and matched_gt_idx not in matched_gt_indices:
+            if max_iou >= detection_iou and matched_gt_idx not in matched_gt_indices:
                 color = 'blue'
                 true_positive += 1
                 matched_gt_indices.add(matched_gt_idx)
@@ -1121,7 +958,7 @@ def display_image_with_boxes(image, gt_boxes, gt_labels, pred_boxes, pred_scores
 
     # For mAP calculation, use the adjusted predictions after NMS
     mAP_current_iou, original_precisions, original_recalls, adjusted_precisions, recalls, extended_precisions, extended_recalls = compute_precisions_recalls_mAP(
-        adjusted_pred_boxes, pred_scores, pred_labels, adjusted_gt_boxes, gt_labels, confidence_thresholds, iou_threshold)
+        adjusted_pred_boxes, pred_scores, pred_labels, adjusted_gt_boxes, gt_labels, confidence_thresholds, detection_iou)
 
     # Plot adjusted PR curve as a thicker line
     ax_pr_curve.plot(extended_recalls, extended_precisions, marker='.', linewidth=2, markersize=6, label='Adjusted', color='blue')
@@ -1133,16 +970,16 @@ def display_image_with_boxes(image, gt_boxes, gt_labels, pred_boxes, pred_scores
     ax_pr_curve.fill_between(extended_recalls, extended_precisions, alpha=0.4, color='yellow')
 
     # Compute mAP@50:95
-    iou_thresholds = np.arange(0.5, 0.96, 0.05)
+    detection_ious = np.arange(0.5, 0.96, 0.05)
     mAPs = []
-    for iou_thr in iou_thresholds:
+    for iou_thr in detection_ious:
         mAP_iou = compute_mAP(adjusted_pred_boxes, pred_scores, pred_labels,
                               adjusted_gt_boxes, gt_labels, confidence_thresholds, iou_thr)
         mAPs.append(mAP_iou)
     mAP_50_95 = np.mean(mAPs)
 
     # Change the title to include mAP@current_iou and mAP@50:95
-    ax_pr_curve.set_title(f'mAP@{int(iou_threshold*100)}: {mAP_current_iou:.2f}, mAP@50:95: {mAP_50_95:.2f}', fontsize=pr_curve_font_size + 2)
+    ax_pr_curve.set_title(f'mAP@{int(detection_iou*100)}: {mAP_current_iou:.2f}, mAP@50:95: {mAP_50_95:.2f}', fontsize=pr_curve_font_size + 2)
 
     # Make the aspect ratio square
     ax_pr_curve.set_aspect('equal', adjustable='box')
