@@ -7,7 +7,7 @@ import zipfile
 import numpy as np
 import torch
 from pathlib import Path
-from matplotlib.patches import Rectangle
+from matplotlib.patches import Rectangle, Patch
 import matplotlib.pyplot as plt
 import requests
 from torchvision import ops
@@ -20,7 +20,8 @@ import pandas as pd
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
 from ultralytics import YOLO
 import yaml
-from PIL import Image
+import ipywidgets as widgets
+from ipywidgets import interact
 
 def train_one_epoch(model, optimizer, train_loader, val_loader, device, map_metric, scheduler, step_per_batch=False):
     '''
@@ -292,7 +293,7 @@ def prepare_penn_fudan_yolo(target_dir: Path, seed=42):
 
     print("Dataset preparation complete.")
 
-def overlay_masks(image: np.ndarray, mask: np.ndarray, color: tuple[int, int, int], thickness: int = 1) -> np.ndarray:
+def overlay_masks(image, mask, color, thickness=1, mode="shaded", alpha=0.3):
     """
     Overlay a binary mask outline on an image.
 
@@ -300,7 +301,9 @@ def overlay_masks(image: np.ndarray, mask: np.ndarray, color: tuple[int, int, in
     - image (numpy.ndarray): The image on which to overlay the mask.
     - mask (numpy.ndarray): The binary mask (1 for mask, 0 for background).
     - color (tuple): The color for the mask outline in (B, G, R) format.
-    - thickness (int): The thickness of the mask outline (default: 1).
+    - thickness (int, optional): The thickness of the mask outline (default: 1).
+    - mode (str, optional): The mode of overlay ("outline", "shaded", "both") (default: "shaded").
+    - alpha (float, optional): The transparency level for shaded mode (default: 0.3).
 
     Returns:
     - image (numpy.ndarray): The image with the mask outline overlaid.
@@ -309,8 +312,15 @@ def overlay_masks(image: np.ndarray, mask: np.ndarray, color: tuple[int, int, in
     if len(mask.shape) > 2:
         mask = mask.squeeze()  # Ensure single-channel mask
 
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    cv2.drawContours(image, contours, -1, color, thickness)
+    if mode in ["shaded", "both"]:
+        overlay = image.copy()
+        overlay[mask == 1] = color
+        image = cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0)
+
+    if mode in ["outline", "both"]:
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(image, contours, -1, color, thickness)
+
     return image
 
 def denormalize_image(image: np.ndarray, mean: list[float], std: list[float]) -> np.ndarray:
@@ -328,7 +338,7 @@ def denormalize_image(image: np.ndarray, mean: list[float], std: list[float]) ->
     return (image * std + mean).clip(0, 1)
 
 def display_images_and_masks(dataset, num_samples=3, model=None, indices=None, figsize=(4, 4), overlay=True, 
-                             denormalize=True, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
+                             denormalize=True, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], mode="outline", alpha=0.3):
     """
     Display random samples from the dataset with ground truth masks. If a model is provided, it also displays predicted masks.
 
@@ -372,12 +382,12 @@ def display_images_and_masks(dataset, num_samples=3, model=None, indices=None, f
 
         if overlay:
             # Overlay ground truth mask in blue
-            img_overlay = overlay_masks(img_bgr.copy(), gt_mask, color=(255, 0, 0))
+            img_overlay = overlay_masks(img_bgr.copy(), gt_mask, color=(255, 0, 0), mode=mode, alpha=alpha)
             
             # Overlay predicted mask in orange if model is provided
             if pred_mask is not None:
                 pred_mask = (pred_mask > 0.5).astype(np.uint8)  # Binarize predicted mask
-                img_overlay = overlay_masks(img_overlay, pred_mask, color=(0, 165, 255))
+                img_overlay = overlay_masks(img_overlay, pred_mask, color=(0, 165, 255), mode=mode, alpha=alpha)    
 
             img_rgb_overlay = cv2.cvtColor(img_overlay, cv2.COLOR_BGR2RGB)
             plt.figure(figsize=figsize)
@@ -1027,3 +1037,111 @@ def load_annotations(json_file):
     pred_scores = np.array(data["pred_scores"])
 
     return gt_boxes, gt_labels, pred_boxes, pred_labels, pred_scores
+
+
+import cv2
+import numpy as np
+from matplotlib import pyplot as plt
+from scipy.ndimage import binary_dilation
+from ipywidgets import interact, widgets
+from matplotlib.patches import Patch
+
+def display_iou_illustration(index, dataset, perturbation_fn=None, figsize=(6, 6), alpha=0.5):
+    """
+    Display an image with ground truth and perturbed masks, illustrating IoU, Dice, Recall, Precision, and Accuracy.
+
+    Parameters:
+    - index (int): The index of the sample in the dataset.
+    - dataset: The PennFudan dataset.
+    - perturbation_fn (callable, optional): A function to perturb the ground truth mask to create a "predicted" mask.
+    - figsize (tuple, optional): The size of the display figure (default: (8, 8)).
+    """
+    def perturbation_fn_factory(quality):
+        def perturbation_fn(mask):
+            # Create a binary version of the mask
+            binary_mask = (mask > 0.5).astype(np.uint8)
+            
+            # Significant dilation
+            kernel_size = int(12*(1-quality))  # Fixed large dilation kernel
+            if kernel_size > 0:
+                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+                dilated_mask = cv2.dilate(binary_mask, kernel, iterations=1)
+            else:
+                dilated_mask = binary_mask
+            
+            # Add a shift to the dilated mask
+            shift = -int(10*(1-quality))  # Fixed large shift
+            shifted_mask = np.roll(dilated_mask, shift=shift, axis=0)  # Vertical shift
+            shifted_mask = np.roll(shifted_mask, shift=shift, axis=1)  # Horizontal shift
+            
+            # Linearly interpolate between the ground truth and shifted+dilated mask
+            interpolated_mask = shifted_mask
+            
+            # Re-binarize the interpolated mask using a threshold
+            interpolated_mask = (interpolated_mask > 0.5).astype(mask.dtype)
+            
+            return interpolated_mask
+        return perturbation_fn
+
+    def update_display(quality):
+        # Load the image and ground truth mask
+        image, gt_mask = dataset[index]
+        gt_mask = gt_mask.numpy().squeeze()
+
+        # Create a perturbed mask as the "predicted" mask
+        pred_mask = perturbation_fn_factory(quality)(gt_mask)
+
+        # Calculate TP, FP, FN, and TN
+        TP = np.sum((gt_mask > 0.5) & (pred_mask > 0.5))  # True Positives
+        FP = np.sum((gt_mask <= 0.5) & (pred_mask > 0.5))  # False Positives
+        FN = np.sum((gt_mask > 0.5) & (pred_mask <= 0.5))  # False Negatives
+        TN = np.sum((gt_mask <= 0.5) & (pred_mask <= 0.5))  # True Negatives
+
+        # Metrics calculation
+        iou = TP / (TP + FP + FN + 1e-6)  # Intersection over Union
+        recall = TP / (TP + FN + 1e-6)  # True Positive Rate
+        precision = TP / (TP + FP + 1e-6)  # Precision
+        accuracy = (TP + TN) / (TP + FP + FN + TN + 1e-6)  # Pixel-wise accuracy
+        dice = 2 * TP / (2 * TP + FP + FN + 1e-6)  # F1 score for segmentation
+
+        # Debugging: Print metrics breakdown
+        #print(f"Metrics Breakdown: TP={intersection}, FN={gt_area - intersection}, FP={pred_area - intersection}")
+        #print(f"Precision={precision:.4f}, Recall={recall:.4f}, Dice={dice:.4f}, IoU={iou:.4f}")
+
+        # Convert image to numpy and denormalize
+        img_np = image.permute(1, 2, 0).numpy()
+        img_np = denormalize_image(img_np, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        img_np = (img_np * 255).astype(np.uint8)  # Scale for OpenCV display
+        img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+
+        # Overlay masks with transparency
+        overlay = img_bgr.copy()
+        overlay = overlay_masks(overlay, (pred_mask > 0.5) & ~(gt_mask > 0.5), color=(0, 165, 255), alpha=alpha)  # Cyan for false positives
+        overlay = overlay_masks(overlay, (gt_mask > 0.5) & ~(pred_mask > 0.5), color=(255, 255, 0), alpha=alpha)  # Orange for false negatives
+        overlay = overlay_masks(overlay, (gt_mask > 0.5) & (pred_mask > 0.5), color=(162, 162, 128), alpha=alpha)  # Gray for true positives
+
+        # Convert back to RGB for display
+        img_rgb_overlay = cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB)
+
+        # Display the image with overlaid masks
+        plt.figure(figsize=figsize)
+        plt.imshow(img_rgb_overlay)
+        plt.axis('off')
+
+        # Add metrics text
+        plt.text(10, 10, f'IoU: {iou:.2f}', color='black', fontsize=12, bbox=dict(facecolor='white', alpha=0.8))
+        plt.text(10, 25, f'Dice: {dice:.2f}', color='black', fontsize=12, bbox=dict(facecolor='white', alpha=0.8))
+        plt.text(10, 40, f'Recall: {recall:.2f}', color='black', fontsize=12, bbox=dict(facecolor='white', alpha=0.8))
+        plt.text(10, 55, f'Precision: {precision:.2f}', color='black', fontsize=12, bbox=dict(facecolor='white', alpha=0.8))
+        plt.text(10, 70, f'Accuracy: {accuracy:.2f}', color='black', fontsize=12, bbox=dict(facecolor='white', alpha=0.8))
+
+        # Add legend
+        legend_elements = [
+            Patch(facecolor='gray', edgecolor='gray', label=f'True Positives {TP}'),
+            Patch(facecolor='orange', edgecolor='orange', label=f'False Positives {FP}'),
+            Patch(facecolor='cyan', edgecolor='cyan', label=f'False Negatives {FN}'),
+        ]
+        plt.legend(handles=legend_elements, loc='upper right')
+        plt.show()
+
+    interact(update_display, quality=widgets.FloatSlider(value=0.0, min=0.0, max=1, step=0.01, description='Quality'))
