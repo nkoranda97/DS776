@@ -21,7 +21,7 @@ from torchmetrics.detection.mean_ap import MeanAveragePrecision
 from ultralytics import YOLO
 import yaml
 import ipywidgets as widgets
-from ipywidgets import interact
+from ipywidgets import interact, widgets
 
 def train_one_epoch(model, optimizer, train_loader, val_loader, device, map_metric, scheduler, step_per_batch=False):
     '''
@@ -381,13 +381,15 @@ def display_images_and_masks(dataset, num_samples=3, model=None, indices=None, f
         gt_mask = target_mask.cpu().numpy() if device else target_mask.numpy()
 
         if overlay:
-            # Overlay ground truth mask in blue
-            img_overlay = overlay_masks(img_bgr.copy(), gt_mask, color=(255, 0, 0), mode=mode, alpha=alpha)
-            
-            # Overlay predicted mask in orange if model is provided
-            if pred_mask is not None:
+
+            if pred_mask is None:
+                # Overlay ground truth mask outline in cyan
+                img_overlay = overlay_masks(img_bgr.copy(), gt_mask, color=(255, 255, 0), mode=mode, alpha=alpha)
+            else:
+                # Overlay predicted mask in orange with cyan outline for ground truth
                 pred_mask = (pred_mask > 0.5).astype(np.uint8)  # Binarize predicted mask
-                img_overlay = overlay_masks(img_overlay, pred_mask, color=(0, 165, 255), mode=mode, alpha=alpha)    
+                img_overlay = overlay_masks(img_bgr.copy(), pred_mask, color=(0, 165, 255), mode=mode, alpha=alpha)   
+                img_overlay = overlay_masks(img_overlay, gt_mask, color=(255, 255, 0), mode="outline", alpha=1.0)
 
             img_rgb_overlay = cv2.cvtColor(img_overlay, cv2.COLOR_BGR2RGB)
             plt.figure(figsize=figsize)
@@ -408,6 +410,9 @@ def display_images_and_masks(dataset, num_samples=3, model=None, indices=None, f
             if pred_mask is not None:
                 pred_rgb = (pred_mask * 255).astype(np.uint8)  # Display as binary mask in grayscale
                 pred_rgb = np.stack([pred_rgb] * 3, axis=-1)  # Convert to 3-channel grayscale
+                if mode=="outline":
+                    pred_rbg = overlay_masks(pred_rgb, gt_mask, color=(0, 255, 255), mode="outline", alpha=1.0)
+                    pred_rgb = overlay_masks(pred_rgb, pred_mask, color=(255, 165, 0), mode="outline", alpha=1.0)
                 images.append(pred_rgb)
                 titles.append('Predicted Mask')
             
@@ -692,11 +697,6 @@ def display_image_with_dropdown(image, gt_boxes, gt_labels, pred_boxes, pred_sco
     """
     if isinstance(image, torch.Tensor):
         image = image.permute(1, 2, 0).cpu().numpy()
-
-    #iou_slider = widgets.FloatSlider(min=0.05, max=0.95, step=0.05, value=detection_iou, description='Detection IoU:')
-    #conf_slider = widgets.FloatSlider(min=0, max=1, step=0.05, value=conf_threshold, description='Confidence Threshold:')
-    #nms_slider = widgets.FloatSlider(min=0.0, max=1.0, step=0.05, value=iou_max_overlap, description='IOU Max Overlap:')
-    #output = widgets.Output()
 
     # Define a wider layout for the sliders
     slider_layout = widgets.Layout(width='500px')  # Adjust the width as needed
@@ -1042,11 +1042,10 @@ def load_annotations(json_file):
 import cv2
 import numpy as np
 from matplotlib import pyplot as plt
-from scipy.ndimage import binary_dilation
 from ipywidgets import interact, widgets
 from matplotlib.patches import Patch
 
-def display_iou_illustration(index, dataset, perturbation_fn=None, figsize=(6, 6), alpha=0.5):
+def display_iou_illustration(index, dataset, figsize=(6, 6), alpha=0.5):
     """
     Display an image with ground truth and perturbed masks, illustrating IoU, Dice, Recall, Precision, and Accuracy.
 
@@ -1116,9 +1115,9 @@ def display_iou_illustration(index, dataset, perturbation_fn=None, figsize=(6, 6
 
         # Overlay masks with transparency
         overlay = img_bgr.copy()
-        overlay = overlay_masks(overlay, (pred_mask > 0.5) & ~(gt_mask > 0.5), color=(0, 165, 255), alpha=alpha)  # Cyan for false positives
-        overlay = overlay_masks(overlay, (gt_mask > 0.5) & ~(pred_mask > 0.5), color=(255, 255, 0), alpha=alpha)  # Orange for false negatives
-        overlay = overlay_masks(overlay, (gt_mask > 0.5) & (pred_mask > 0.5), color=(162, 162, 128), alpha=alpha)  # Gray for true positives
+        overlay = overlay_masks(overlay, (pred_mask > 0.5) & ~(gt_mask > 0.5), color=(0, 165, 255), alpha=alpha)  # orange for false positives
+        overlay = overlay_masks(overlay, (gt_mask > 0.5) & ~(pred_mask > 0.5), color=(255, 255, 0), alpha=alpha)  # cyan for false negatives
+        overlay = overlay_masks(overlay, (gt_mask > 0.5) & (pred_mask > 0.5), color=(162, 162, 128), alpha=alpha)  # gray for true positives
 
         # Convert back to RGB for display
         img_rgb_overlay = cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB)
@@ -1144,4 +1143,8 @@ def display_iou_illustration(index, dataset, perturbation_fn=None, figsize=(6, 6
         plt.legend(handles=legend_elements, loc='upper right')
         plt.show()
 
-    interact(update_display, quality=widgets.FloatSlider(value=0.0, min=0.0, max=1, step=0.01, description='Quality'))
+        # Define a wider layout for the sliders
+    slider_layout = widgets.Layout(width='500px')  # Adjust the width as needed
+    slider_style = {'description_width': '150px'}  # Adjust the width for descriptions   
+
+    interact(update_display, quality=widgets.FloatSlider(value=0.0, min=0.0, max=1, step=0.01, description='Quality', layout=slider_layout, style=slider_style))
