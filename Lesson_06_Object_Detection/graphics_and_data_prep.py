@@ -107,10 +107,8 @@ def train_one_epoch(model, optimizer, train_loader, val_loader, device, map_metr
     
     return avg_train_loss, avg_val_loss, map_50, map_50_95
 
-
 def train_rcnn(model, optimizer, scheduler, train_loader, val_loader, device, save_file, 
-               num_epochs=15, step_per_batch=False):
-
+               num_epochs=15, step_per_batch=False, patience=None):
     '''
     Train a Region-based Convolutional Neural Network (RCNN) model.
     Args:
@@ -123,6 +121,7 @@ def train_rcnn(model, optimizer, scheduler, train_loader, val_loader, device, sa
         save_file (str): Path to save the final model weights.
         num_epochs (int, optional): Number of epochs to train the model. Default is 15.
         step_per_batch (bool, optional): Whether to step the scheduler per batch. Default is False.
+        patience (int, optional): Number of epochs to wait for improvement before early stopping. Default is None.
     Returns:
         pd.DataFrame: DataFrame containing training and validation metrics for each epoch.
     '''
@@ -132,6 +131,9 @@ def train_rcnn(model, optimizer, scheduler, train_loader, val_loader, device, sa
 
     # DataFrame to store results
     results = pd.DataFrame(columns=['epoch', 'train_loss', 'val_loss', 'map_50', 'map_50_95', 'lr'])
+
+    best_map_50_95 = 0
+    epochs_without_improvement = 0
 
     for epoch in range(num_epochs):
         # Train and validate for the epoch
@@ -157,13 +159,32 @@ def train_rcnn(model, optimizer, scheduler, train_loader, val_loader, device, sa
 
         print(epoch_str)
 
+        # Check for improvement and save the best model if patience is specified
+        if patience is not None:
+            if map_50_95 > best_map_50_95:
+                best_map_50_95 = map_50_95
+                epochs_without_improvement = 0
+                # Save the best model weights
+                torch.save(model.state_dict(), save_file)
+                print(f"Improvement detected. Model weights saved.")
+            else:
+                epochs_without_improvement += 1
+
+            # Early stopping
+            if epochs_without_improvement >= patience:
+                print(f"Early stopping triggered. No improvement for {patience} consecutive epochs.")
+                break
+
         # Step the scheduler based on mAP@50-95
         if scheduler and not step_per_batch:
             scheduler.step(map_50)
 
-    # Save final model weights
-    torch.save(model.state_dict(), save_file)
-    print(f"Training complete. Final model weights saved.")
+    # Save the model from the last epoch if early stopping is not triggered
+    if patience is None or epochs_without_improvement < patience:
+        torch.save(model.state_dict(), save_file)
+        print(f"Model weights saved from the last epoch.")
+
+    print(f"Training complete. Best model weights saved at epoch {epoch + 1 - epochs_without_improvement}.")
 
     return results
 
@@ -464,7 +485,7 @@ def denormalize_torch(image_tensor: torch.Tensor, mean: list[float], std: list[f
     return image_tensor * std[:, None, None] + mean[:, None, None]
 
 def display_images_and_boxes(dataset, num_samples=3, model=None, min_confidence=0.5, iou_max_overlap=0.4, indices=None, 
-                             figsize=(6, 6), denormalize=True, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], 
+                             figsize=(6, 6), denormalize=False, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], 
                              show_confidence=False, show_prediction=False, filter_mode='nms'):
     """
     Display random samples from the dataset with ground truth boxes. If a model is provided, it also displays predictions.
@@ -676,32 +697,15 @@ def display_image_with_dropdown(image, gt_boxes, gt_labels, pred_boxes, pred_sco
                                 detection_iou=0.5, conf_threshold=1.0, image_width_scale=0.8,
                                 box_font_size=12, stats_font_size=14, pr_curve_font_size=12,
                                 scores_with_background=False, iou_max_overlap=1.0):
-    """
-    Display an image with ground truth and predicted bounding boxes, and sliders to adjust the thresholds.
 
-    Parameters:
-    - image: The image to display (NumPy array or PyTorch tensor).
-    - gt_boxes: The ground truth bounding boxes.
-    - gt_labels: The ground truth labels.
-    - pred_boxes: The predicted bounding boxes.
-    - pred_scores: The predicted scores.
-    - pred_labels: The predicted labels.
-    - detection_iou: The IoU threshold for color coding.
-    - conf_threshold: The confidence threshold for filtering.
-    - image_width_scale: Factor to scale the width of the displayed image (e.g., 0.8 for 80% width).
-    - box_font_size: Font size for scores and IoU displayed on boxes.
-    - stats_font_size: Font size for the statistics displayed on the image.
-    - pr_curve_font_size: Font size for labels and title in the PR curve.
-    - scores_with_background: If True, display scores in white font on a background matching the prediction box color.
-    - iou_max_overlap: Threshold for Non-Maximum Suppression (NMS). If > 0, NMS is applied.
-    """
     if isinstance(image, torch.Tensor):
         image = image.permute(1, 2, 0).cpu().numpy()
 
-    # Define a wider layout for the sliders
-    slider_layout = widgets.Layout(width='500px')  # Adjust the width as needed
-    slider_style = {'description_width': '150px'}  # Adjust the width for descriptions
+    # Define slider layouts and styles
+    slider_layout = widgets.Layout(width='500px')
+    slider_style = {'description_width': '150px'}
 
+    # Create sliders
     iou_slider = widgets.FloatSlider(
         min=0.05, max=0.95, step=0.05, value=detection_iou, 
         description='Detection IoU:', layout=slider_layout, style=slider_style
@@ -716,20 +720,28 @@ def display_image_with_dropdown(image, gt_boxes, gt_labels, pred_boxes, pred_sco
     )
     output = widgets.Output()
 
-    def on_slider_change(change):
+    def update_display():
         with output:
             output.clear_output(wait=True)
-            display_image_with_boxes(image, gt_boxes, gt_labels, pred_boxes, pred_scores, pred_labels, 
-                                     iou_slider.value, conf_slider.value, image_width_scale,
-                                     box_font_size, stats_font_size, pr_curve_font_size,
-                                     scores_with_background, nms_slider.value)
+            display_image_with_boxes(
+                image, gt_boxes, gt_labels, pred_boxes, pred_scores, pred_labels,
+                iou_slider.value, conf_slider.value, image_width_scale,
+                box_font_size, stats_font_size, pr_curve_font_size,
+                scores_with_background, nms_slider.value
+            )
 
-    iou_slider.observe(on_slider_change, names='value')
-    conf_slider.observe(on_slider_change, names='value')
-    nms_slider.observe(on_slider_change, names='value')
-    on_slider_change(None)
+    # Call update_display() once to show initial plots
+    update_display()
 
+    # Attach observers for updates
+    iou_slider.observe(lambda change: update_display(), names='value')
+    conf_slider.observe(lambda change: update_display(), names='value')
+    nms_slider.observe(lambda change: update_display(), names='value')
+
+    # Display widget
     display(widgets.VBox([iou_slider, conf_slider, nms_slider, output]))
+
+
 
 def calculate_iou(box, gt_boxes):
     """
@@ -1039,11 +1051,7 @@ def load_annotations(json_file):
     return gt_boxes, gt_labels, pred_boxes, pred_labels, pred_scores
 
 
-import cv2
-import numpy as np
-from matplotlib import pyplot as plt
-from ipywidgets import interact, widgets
-from matplotlib.patches import Patch
+
 
 def display_iou_illustration(index, dataset, figsize=(6, 6), alpha=0.5):
     """
