@@ -2,6 +2,10 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 from bertviz import head_view
+import ipywidgets as widgets
+from IPython.display import display
+import ipywidgets as widgets
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 def visualize_positional_encodings(pos_encoder, max_len=50, d_model=16, figsize=(8,5)):
     """
@@ -24,6 +28,113 @@ def visualize_positional_encodings(pos_encoder, max_len=50, d_model=16, figsize=
     plt.xlabel("Embedding Dimension")
     plt.ylabel("Position Index")
     plt.show()
+
+def plot_attention_weights_widget(model, loader, vocab, figsize=(6, 6)):
+    def visualize(layer_idx, seq_idx):
+        # Get a batch from the loader
+        for batch_idx, (inputs, labels) in enumerate(loader):
+            break  # Take the first batch
+
+        # Move inputs and model to the correct device
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        inputs = inputs.to(device)
+        model_on_device = model.to(device)  # Move model to the same device
+
+        # Forward pass to generate predictions
+        outputs = model_on_device(inputs)
+
+        # Extract attention weights
+        attention_weights = model_on_device.get_attention_weights()  # List of attention weights from all layers
+
+        # Validate indices
+        num_layers = len(attention_weights)
+        if layer_idx < 0 or layer_idx >= num_layers:
+            print(f"Invalid layer index {layer_idx}. Must be between 0 and {num_layers - 1}.")
+            return
+        
+        if seq_idx < 0 or seq_idx >= inputs.size(0):
+            print(f"Invalid sequence index {seq_idx}. Must be between 0 and {inputs.size(0) - 1}.")
+            return
+
+        # Select attention weights for the specified sequence and layer
+        attention_for_idx = attention_weights[layer_idx][seq_idx].detach().cpu().numpy()  # Shape: (seq_len, seq_len)
+        inputs_for_idx = inputs[seq_idx].cpu()
+        mask = (inputs_for_idx != 0)
+        attention_for_idx = attention_for_idx[:, mask][mask, :]
+        inputs_for_idx = inputs_for_idx[mask].numpy()
+
+        # Map token indices to tokens
+        idx_to_token = {v: k for k, v in vocab.items()}
+        tokens = [idx_to_token.get(i, "[UNK]") for i in inputs_for_idx]
+
+        # Plot the attention weights without gridlines
+        fig, ax = plt.subplots(figsize=figsize)
+        im = ax.imshow(attention_for_idx, cmap='viridis')
+
+        # Adjust colorbar height to match the plot
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.05)  # Adjust width and padding of colorbar
+        cb = fig.colorbar(im, cax=cax)
+        cb.ax.tick_params(labelsize=10)  # Adjust tick label size
+
+        # Add titles and labels
+        ax.set_title(f"Attention Weights, Layer {layer_idx}", fontsize=12)
+        ax.set_xlabel("Keys", fontsize=12)
+        ax.set_ylabel("Queries", fontsize=12)
+        ax.grid(False)  # Remove gridlines
+
+        # Move xticks to the top
+        ax.xaxis.set_ticks_position('top')
+        ax.xaxis.set_label_position('top')
+
+        ax.set_xticks(np.arange(attention_for_idx.shape[1]))
+        ax.set_xticklabels(tokens, rotation=45, fontsize=12)
+        ax.set_yticks(np.arange(attention_for_idx.shape[0]))
+        ax.set_yticklabels(tokens, fontsize=12)
+
+        plt.show()
+
+    # Get number of layers and sequences
+    num_layers = len(model.get_attention_weights())
+    for batch_idx, (inputs, _) in enumerate(loader):
+        num_sequences = inputs.size(0)
+        break
+
+    # Create widgets
+    layer_dropdown = widgets.Dropdown(
+        options=list(range(num_layers)),
+        value=0,
+        description="Layer:",
+    )
+    seq_slider = widgets.IntSlider(
+        value=2,
+        min=0,
+        max=num_sequences - 1,
+        step=1,
+        description="Sequence:",
+        continuous_update=False,
+    )
+    seq_input = widgets.BoundedIntText(
+        value=2,
+        min=0,
+        max=num_sequences - 1,
+        step=1,
+        description="Seq Input:",
+    )
+
+    # Link slider and input box
+    widgets.jslink((seq_slider, 'value'), (seq_input, 'value'))
+
+    # Interactive display
+    interact_ui = widgets.VBox([layer_dropdown, widgets.HBox([seq_slider, seq_input])])
+    display(interact_ui)
+
+    # Update the visualization when widget values change
+    output = widgets.interactive_output(
+        visualize, {'layer_idx': layer_dropdown, 'seq_idx': seq_slider}
+    )
+    display(output)
+
 
 def plot_attention_weights(model, loader, vocab, layer_idx, idx, figsize=(6, 6)):
     import matplotlib.pyplot as plt
