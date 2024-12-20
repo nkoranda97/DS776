@@ -12,6 +12,9 @@ import pandas as pd
 import inspect
 from torchinfo import summary
 import traceback
+from textwrap import TextWrapper
+from sklearn.model_selection import train_test_split
+from torch.utils.data import Subset
 
 ###########################################################
 # Utility Functions
@@ -174,124 +177,6 @@ def classifier_predict(dataset, model, device, batch_size=32, return_labels=Fals
         return predictions, ground_truth
     return predictions
 
-
-'''
-def create_CIFAR10_loaders(transform_train=None, transform_test=None, transform_valid=None,
-                           valid_prop=0.2, batch_size=64, seed=42, data_dir='./data', 
-                           downsample_prop=1.0, num_workers=1, use_augmentation=False):
-    """
-    Create data loaders for the CIFAR10 dataset.
-
-    Args:
-        transform_train (torchvision.transforms.v2.Compose, optional): Transformations for the training set. Defaults to standard training transforms if None.
-        transform_test (torchvision.transforms.v2.Compose, optional): Transformations for the test set. Defaults to standard test transforms if None.
-        transform_valid (torchvision.transforms.v2.Compose, optional): Transformations for the validation set. Defaults to None.
-        valid_prop (float or None): Proportion of the training set to use for validation. If 0.0 or None, no validation split is made.
-        batch_size (int): Batch size for the data loaders.
-        seed (int): Random seed for reproducibility.
-        data_dir (str): Directory to download/load CIFAR10 data.
-        downsample_prop (float): Proportion of the dataset to keep if less than 1. Defaults to 1.0.
-        num_workers (int): Number of worker processes to use for data loading.
-        use_augmentation (bool): Whether to apply data augmentation to the training set. Defaults to False.
-
-    Returns:
-        torch.utils.data.DataLoader: Data loaders for training and test datasets, and validation if valid_prop is set.
-    """
-    print("inside create_CIFAR10_loaders")
-    print(f"{use_augmentation=}")
-
-    # Set default transforms if none are supplied
-    mean = (0.4914, 0.4822, 0.4465) 
-    std = (0.2023, 0.1994, 0.2010)
-
-    if transform_train is None:
-        if use_augmentation:
-            print('choosing augmentation')
-            transform_train = transforms.Compose([
-                transforms.ToImage(),
-                transforms.ToDtype(torch.float32, scale=True),
-                transforms.RandomCrop(32, padding=4),
-                transforms.RandomHorizontalFlip(),
-                transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-                transforms.Normalize(mean=mean, std=std), 
-                transforms.ToPureTensor()   
-            ])
-        else:
-            print('choosing standard')
-            transform_train = transforms.Compose([
-                transforms.ToImage(),
-                transforms.ToDtype(torch.float32, scale=True),
-                transforms.Normalize(mean=mean, std=std),
-                transforms.ToPureTensor()   
-            ])
-    
-    if transform_test is None:
-        transform_test = transforms.Compose([
-            transforms.ToImage(),
-            transforms.ToDtype(torch.float32, scale=True),
-            transforms.Normalize(mean=mean, std=std),
-            transforms.ToPureTensor()   
-        ])
-        
-    # Set validation transform; if None, use transform_test
-    if transform_valid is None:
-        transform_valid = transform_test
-
-    # Set random seed for reproducibility
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-
-    # Load the full training and test datasets
-    train_dataset_full = CIFAR10(root=data_dir, train=True, download=True, transform=transform_train)
-    test_dataset = CIFAR10(root=data_dir, train=False, download=True, transform=transform_test)
-    print('after instantiation')
-    print(f"{train_dataset_full.transform=}")
-
-    # Downsample datasets if required
-    if downsample_prop < 1.0:
-        print('downsampling')
-        downsample_size_train = int(downsample_prop * len(train_dataset_full))
-        train_dataset_full, _ = random_split(train_dataset_full, [downsample_size_train, len(train_dataset_full) - downsample_size_train], generator=torch.Generator().manual_seed(seed))
-        
-        downsample_size_test = int(downsample_prop * len(test_dataset))
-        test_dataset, _ = random_split(test_dataset, [downsample_size_test, len(test_dataset) - downsample_size_test], generator=torch.Generator().manual_seed(seed))
-
-    # Split the dataset into training and validation sets if valid_prop is provided
-    if valid_prop and valid_prop > 0.0:
-        train_size = int((1 - valid_prop) * len(train_dataset_full))
-        valid_size = len(train_dataset_full) - train_size
-        train_dataset, valid_dataset = random_split(train_dataset_full, [train_size, valid_size], generator=torch.Generator().manual_seed(seed))
-        print('after split')
-        print(f"{train_dataset.dataset.transform=}")
-        print(f"{valid_dataset.dataset.transform=}")
-
-        # Apply validation transform to validation dataset
-        train_dataset.dataset.transform = transform_train
-        valid_dataset.dataset.transform = transform_valid
-
-        # Create data loaders for training, validation, and test sets
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-        valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-
-        print(train_loader.dataset.dataset.transform)
-        print(valid_loader.dataset.dataset.transform)
-
-        return train_loader, valid_loader, test_loader, train_dataset, valid_dataset, test_dataset
-    else:
-        # If no validation set is needed
-        train_loader = DataLoader(train_dataset_full, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-
-        return train_loader, test_loader
-'''
-
-from sklearn.model_selection import train_test_split
-from torch.utils.data import Subset
-
 def create_CIFAR10_loaders(transform_train=None, transform_test=None, transform_valid=None,
                            valid_prop=0.2, batch_size=64, seed=42, data_dir='./data', 
                            downsample_prop=1.0, num_workers=1, persistent_workers = True, 
@@ -388,3 +273,32 @@ def create_CIFAR10_loaders(transform_train=None, transform_test=None, transform_
         return train_loader, valid_loader, test_loader
     else:
         return train_loader, test_loader
+
+def wrap_print_text(print):
+    """
+    Wraps the given print function to format text with a specified width.
+    This function takes a print function as an argument and returns a new function
+    that formats the text to a specified width before printing. The text is wrapped
+    to 80 characters per line, and long words are broken to fit within the width.
+    Args:
+        print (function): The original print function to be wrapped.
+    Returns:
+        function: A new function that formats text to 80 characters per line and
+                  then prints it using the original print function.
+    Example:
+        wrapped_print = wrap_print_text(print)
+        wrapped_print("This is a very long text that will be wrapped to fit within 80 characters per line.")
+    Adapted from: https://stackoverflow.com/questions/27621655/how-to-overload-print-function-to-expand-its-functionality/27621927"""
+
+    def wrapped_func(text):
+        if not isinstance(text, str):
+            text = str(text)
+        wrapper = TextWrapper(
+            width=80,
+            break_long_words=True,
+            break_on_hyphens=False,
+            replace_whitespace=False,
+        )
+        return print("\n".join(wrapper.fill(line) for line in text.split("\n")))
+
+    return wrapped_func
