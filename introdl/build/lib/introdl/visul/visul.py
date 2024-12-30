@@ -98,9 +98,7 @@ def image_to_PIL(image, cmap=None, mean=None, std=None):
 
     # Ensure image is in uint8 format
     if image.dtype != np.uint8:
-        print('converting to uint8')
         image = (image * 255).astype(np.uint8)
-        print(image)
 
     return Image.fromarray(image)
 
