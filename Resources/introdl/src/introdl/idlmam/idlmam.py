@@ -28,8 +28,7 @@ warnings.filterwarnings("ignore", category=TqdmExperimentalWarning)
 from tqdm.autonotebook import tqdm
 '''
 
-from tqdm import tqdm
-
+from tqdm.autonotebook import tqdm
 
 # Set Seaborn theme
 sns.set_theme(style="darkgrid")
@@ -89,62 +88,60 @@ def run_epoch(model, optimizer, data_loader, loss_func, device, results, score_f
     is_regression = isinstance(loss_func, (nn.MSELoss, nn.L1Loss, nn.SmoothL1Loss))
     
     # Loop over batches
-    with tqdm(total=len(data_loader), desc=desc, leave=False, 
-              disable=not use_tqdm, dynamic_ncols=True) as batch_pbar:
-        for inputs, labels in data_loader:
-            # Move the batch to the device we are using
-            inputs = moveTo(inputs, device)
-            labels = moveTo(labels, device)
+    for inputs, labels in data_loader:
+        # Move the batch to the device we are using
+        inputs = moveTo(inputs, device)
+        labels = moveTo(labels, device)
 
-            # Forward pass
-            y_hat = model(inputs)
+        # Forward pass
+        y_hat = model(inputs)
+        
+        # Compute loss
+        loss = loss_func(y_hat, labels)
+
+        if model.training:
+            loss.backward()  # Compute gradients
             
-            # Compute loss
-            loss = loss_func(y_hat, labels)
+            # Gradient clipping
+            if grad_clip: 
+                nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
 
-            if model.training:
-                loss.backward()  # Compute gradients
-                
-                # Gradient clipping
-                if grad_clip: 
-                    nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            optimizer.step()  # Update the weights
+            optimizer.zero_grad()  # Zero the gradients
 
-                optimizer.step()  # Update the weights
-                optimizer.zero_grad()  # Zero the gradients
+            # Step the learning rate scheduler per batch if specified
+            if lr_schedule is not None and scheduler_step_per_batch:
+                lr_schedule.step()
+        
+        # Store loss
+        running_loss.append(loss.item())
 
-                # Step the learning rate scheduler per batch if specified
-                if lr_schedule is not None and scheduler_step_per_batch:
-                    lr_schedule.step()
+        if score_funcs is not None and len(score_funcs) > 0 and isinstance(labels, torch.Tensor):
+            # Move labels & predictions back to CPU for processing and metric calculation
+            labels = labels.detach().cpu().numpy()
+            y_hat = y_hat.detach().cpu().numpy()
             
-            # Store loss
-            running_loss.append(loss.item())
+            # Process predictions based on detected task type
+            if not is_regression:
+                if len(y_hat.shape) == 2 and y_hat.shape[1] > 1:  # Multiclass classification
+                    y_hat = np.argmax(y_hat, axis=1)
+                    labels = labels.flatten()
 
-            if score_funcs is not None and len(score_funcs) > 0 and isinstance(labels, torch.Tensor):
-                # Move labels & predictions back to CPU for processing and metric calculation
-                labels = labels.detach().cpu().numpy()
-                y_hat = y_hat.detach().cpu().numpy()
-                
-                # Process predictions based on detected task type
-                if not is_regression:
-                    if len(y_hat.shape) == 2 and y_hat.shape[1] > 1:  # Multiclass classification
-                        y_hat = np.argmax(y_hat, axis=1)
-                        labels = labels.flatten()
+                elif len(y_hat.shape) == 2 and y_hat.shape[1] == 1:  # Binary classification
+                    y_hat = (y_hat > threshold).astype(int).flatten()
+                    labels = labels.flatten()
 
-                    elif len(y_hat.shape) == 2 and y_hat.shape[1] == 1:  # Binary classification
-                        y_hat = (y_hat > threshold).astype(int).flatten()
-                        labels = labels.flatten()
+                elif len(y_hat.shape) >= 3 and y_hat.shape[1] == 1:  # Binary segmentation
+                    y_hat = (y_hat > threshold).astype(int).flatten()  # Flatten for pixel-level comparison
+                    labels = labels.flatten()
 
-                    elif len(y_hat.shape) >= 3 and y_hat.shape[1] == 1:  # Binary segmentation
-                        y_hat = (y_hat > threshold).astype(int).flatten()  # Flatten for pixel-level comparison
-                        labels = labels.flatten()
+                elif len(y_hat.shape) >= 3 and y_hat.shape[1] > 1:  # Multiclass segmentation
+                    y_hat = np.argmax(y_hat, axis=1).flatten()  # Flatten for pixel-level comparison
+                    labels = labels.flatten()
 
-                    elif len(y_hat.shape) >= 3 and y_hat.shape[1] > 1:  # Multiclass segmentation
-                        y_hat = np.argmax(y_hat, axis=1).flatten()  # Flatten for pixel-level comparison
-                        labels = labels.flatten()
-
-                # Store processed true and predicted values for scoring
-                y_true.extend(labels.tolist())
-                y_pred.extend(y_hat.tolist())
+            # Store processed true and predicted values for scoring
+            y_true.extend(labels.tolist())
+            y_pred.extend(y_hat.tolist())
 
     # End training epoch
     end = time.time()

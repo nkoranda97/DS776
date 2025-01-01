@@ -32,6 +32,70 @@ def detect_jupyter_environment():
     else:
         return "Unknown"
     
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+def config_paths_keys(env_path="../../Resources/local.env", api_keys_env="../../Resources/api_keys.env"):
+    """
+    Reads environment variables and sets paths.
+    If variables are not set, it uses dotenv to load them based on the environment:
+    - CoCalc: ../../Resources/cocalc.env
+    - Colab: ../../Resources/colab.env
+    - Other: ../../Resources/local.env (default)
+
+    Additionally, loads API keys from api_keys_env if HF_TOKEN and OPENAI_API_KEY are not already set.
+
+    Parameters:
+        env_path (str): Path to the local environment file, defaulting to ../../Resources/local.env.
+        api_keys_env (str): Path to the API keys environment file, defaulting to ../../Resources/api_keys.env.
+
+    Returns:
+        dict: A dictionary with keys 'MODELS_PATH' and 'DATA_PATH'.
+    """
+    # Determine the environment
+    if os.getenv('CLOUD_PROJECT') == 'cocalc':
+        env_file = "../../Resources/cocalc.env"
+    elif 'COLAB_GPU' in os.environ:
+        env_file = "../../Resources/colab.env"
+    else:
+        env_file = env_path
+
+    # Load the environment variables from the determined .env file
+    load_dotenv(env_file, override=False)
+
+    # Load API keys if not already set
+    if not os.getenv('HF_TOKEN') or not os.getenv('OPENAI_API_KEY'):
+        load_dotenv(api_keys_env, override=False)
+
+    # Retrieve and expand paths
+    models_path = Path(os.getenv('MODELS_PATH', "")).expanduser()
+    data_path = Path(os.getenv('DATA_PATH', "")).expanduser()
+    torch_home = Path(os.getenv('TORCH_HOME', "")).expanduser()
+    hf_home = Path(os.getenv('HF_HOME', "")).expanduser()
+
+    # Set environment variables to expanded paths
+    os.environ['MODELS_PATH'] = str(models_path)
+    os.environ['DATA_PATH'] = str(data_path)
+    os.environ['TORCH_HOME'] = str(torch_home)
+    os.environ['HF_HOME'] = str(hf_home)
+
+    # Create directories if they don't exist
+    for path in [models_path, data_path, torch_home, hf_home]:
+        if not path.exists():
+            path.mkdir(parents=True, exist_ok=True)
+
+    # Ensure paths are set
+    print(f"MODELS_PATH={models_path}")
+    print(f"DATA_PATH={data_path}")
+    print(f"TORCH_HOME={torch_home}")
+    print(f"HF_HOME={hf_home}")
+
+    return {
+        'MODELS_PATH': models_path,
+        'DATA_PATH': data_path
+    }
+ 
 def get_device():
     """
     Returns the appropriate device ('cuda', 'mps', or 'cpu') depending on availability.
