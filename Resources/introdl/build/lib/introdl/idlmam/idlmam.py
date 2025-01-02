@@ -9,25 +9,10 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import time
+from introdl.utils import load_model, load_results
 
-# tdqm progress bars can behave differently in different environments so we change tdqm
-# to a version that works in different environments
-
-'''
-# Check if running in VSCode or JupyterLab
-if 'VSCODE_PID' in os.environ:
-    from tqdm import tqdm
-else:
-    from tqdm.autonotebook import tqdm
-'''
-'''
 import warnings
-from tqdm import TqdmExperimentalWarning
-# Suppress TqdmExperimentalWarning
-warnings.filterwarnings("ignore", category=TqdmExperimentalWarning)
-from tqdm.autonotebook import tqdm
-'''
-
+warnings.filterwarnings("ignore", category=UserWarning, module="tqdm.autonotebook")
 from tqdm.autonotebook import tqdm
 
 # Set Seaborn theme
@@ -160,180 +145,67 @@ def run_epoch(model, optimizer, data_loader, loss_func, device, results, score_f
     
     return end - start  # Return time spent on epoch
 
-'''
 def train_network(model, loss_func, train_loader, val_loader=None, test_loader=None, score_funcs=None, 
                   epochs=50, device="cpu", checkpoint_file=None, lr_schedule=None, optimizer=None, 
                   disable_tqdm=False, resume_file=None, resume_checkpoint=False, 
                   early_stop_metric=None, early_stop_crit="min", patience=4, grad_clip=None,
-                  scheduler_step_per_batch=False):
+                  scheduler_step_per_batch=False, plateau_metric="loss", pretend_train=False):
     """
-        Train simple neural networks.
+    Train simple neural networks or simulate training if pretend_train is True.
 
     Args:
-        model (torch.nn.Module): The neural network model to train.
-        loss_func (callable): The loss function to optimize during training.
-        train_loader (torch.utils.data.DataLoader): The data loader for the training dataset.
-        val_loader (torch.utils.data.DataLoader, optional): Data loader for the validation dataset.
-            Typically used to monitor performance during training and guide early stopping.
-            If early stopping is enabled, performance on this set will dictate when training stops.
-        test_loader (torch.utils.data.DataLoader, optional): Data loader for the test dataset.
-            In most cases, the test set is reserved for final evaluation after training completes.
-            However, in specific scenarios (e.g., incremental learning, research experiments),
-            it may be used during training to monitor generalization performance.
-        score_funcs (dict, optional): A dictionary of additional evaluation metrics to track during training. 
-            The keys are the names of the metrics and the values are callable functions that compute the metrics. 
-            Default is None.
-        epochs (int, optional): The number of training epochs. Default is 50.
-        device (str, optional): The device to use for training. Default is "cpu".
-        checkpoint_file (str, optional): The file path to save the model checkpoints. Default is None.
-        lr_schedule (torch.optim.lr_scheduler._LRScheduler, optional): The learning rate scheduler. 
-            Default is None.
-        optimizer (torch.optim.Optimizer, optional): The optimizer to use for training. 
-            If None, AdamW optimizer will be used. Default is None.
-        disable_tqdm (bool, optional): Whether to disable the tqdm progress bar. Default is False.
-        resume_file (str, optional): The file path to resume training from a checkpoint. Default is None.
-        resume_checkpoint (bool, optional): Whether to resume training from the provided checkpoint file. 
-            If True, the checkpoint_file parameter will be used as the resume_file. Default is False.
-        early_stop_metric (str, optional): The evaluation metric to use for early stopping. 
-            If provided, training will stop if the metric does not improve for a certain number of epochs. 
-            Default is None.  Must provide val_loader if using early stopping.
-        early_stop_crit (str, optional): The criterion for early stopping. 
-            Must be either "min" or "max". Default is "min".
-        patience (int, optional): The number of epochs to wait for improvement in the early stop metric 
-            before stopping training. Default is 4.
-        scheduler_step_per_batch (bool, optional): Whether to step the scheduler after every batch. Default is False.
-
-    Returns:
-        pandas.DataFrame: A DataFrame containing the training results, including the loss and evaluation metrics 
-        for each epoch.
+        (Same arguments as before)
+        pretend_train (bool): If True, simulate training if a checkpoint file is available.
 
     Raises:
-        ValueError: If the early_stop_metric is not "loss" and not one of the provided score functions.
-        ValueError: If the early_stop_crit is not "min" or "max".
+        ValueError: If pretend_train is True and resume_checkpoint or resume_file is specified.
 
+    Returns:
+        pandas.DataFrame: A DataFrame containing the training results.
     """
 
-    if score_funcs is None:
-        score_funcs = {}
+    # Error checking for pretend_train
+    #if pretend_train and (resume_checkpoint or resume_file):
+    #    raise ValueError(
+    #        "Pretend training cannot be used if resume_checkpoint=True or a resume_file is specified."
+    #    )
 
-    if early_stop_metric and early_stop_metric != "loss" and early_stop_metric not in score_funcs:
-        raise ValueError(f"Early stop metric '{early_stop_metric}' must be 'loss' or one of the provided score functions.")
-
-    if early_stop_crit not in ["min", "max"]:
-        raise ValueError("early_stop_crit should be 'min' or 'max'")
-    early_stop_op = min if early_stop_crit == "min" else max
-
-    to_track = ["epoch", "total time", "train loss"]
-    if val_loader is not None:
-        to_track.append("val loss")
-    if test_loader is not None:
-        to_track.append("test loss")
-    for eval_score in score_funcs:
-        to_track.append("train " + eval_score)
-        if val_loader is not None:
-            to_track.append("val " + eval_score)
-        if test_loader is not None:
-            to_track.append("test " + eval_score)
-    if lr_schedule is not None:
-        to_track.append("lr")
-
-    total_train_time = 0
-    start_epoch = 0
-    results = {item: [] for item in to_track}
-
-    if resume_checkpoint and resume_file is None and checkpoint_file and os.path.exists(checkpoint_file):
-        resume_file = checkpoint_file
-
-    if resume_file is not None:
-        start_epoch, total_train_time, results = load_checkpoint(model, optimizer, lr_schedule, resume_file, device)
-
-    if optimizer is None:
-        optimizer = torch.optim.AdamW(model.parameters())
-        del_opt = True
-    else:
-        del_opt = False
-
-    model.to(device)
-    best_metric = float('inf') if early_stop_crit == "min" else -float('inf')
-    no_improvement = 0
-
-    with tqdm(total=epochs, desc="Epoch", disable=disable_tqdm, leave=True, dynamic_ncols=True) as pbar:
-        for epoch in range(start_epoch, start_epoch + epochs):
-            model.train()
-            total_train_time += run_epoch(model, optimizer, train_loader, loss_func, device, results, score_funcs, 
-                                        prefix = "train", desc="Training Batch", grad_clip=grad_clip, 
-                                        lr_schedule=lr_schedule, scheduler_step_per_batch=scheduler_step_per_batch)
-            results["epoch"].append(epoch)
-            results["total time"].append(total_train_time)
-            pbar.set_postfix(train_loss=results["train loss"][-1])
-
-            if lr_schedule:
-                # Record the learning rate after stepping before checking for early stopping
-                results["lr"].append(optimizer.param_groups[0]['lr'])
-
-            if val_loader:
-                model.eval()
-                with torch.no_grad():
-                    run_epoch(model, optimizer, val_loader, loss_func, device, results, score_funcs, 
-                            prefix="val", desc="Validation Batch")
-                    pbar.set_postfix(train_loss=results["train loss"][-1],val_loss=results["val loss"][-1])
-
-                    # Early stopping with specified metric if provided
-                    if early_stop_metric:
-                        monitor_value = results[f"val {early_stop_metric}"][-1] if early_stop_metric != "loss" else results["val loss"][-1]
-                        if early_stop_op(monitor_value, best_metric) == monitor_value:
-                            best_metric = monitor_value
-                            no_improvement = 0
-                            if checkpoint_file:
-                                save_checkpoint(epoch, model, optimizer, results, checkpoint_file, lr_schedule)
-                        else:
-                            no_improvement += 1
-                            if no_improvement >= patience:
-                                print(f"Early stopping at epoch {epoch}")
-                                break
-
-            if lr_schedule:
-                if not scheduler_step_per_batch:
-                    if isinstance(lr_schedule, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                        lr_schedule.step(results["val loss"][-1])
-                    elif _scheduler_accepts_epoch(lr_schedule):
-                        lr_schedule.step(epoch=epoch)
-                    else:
-                        lr_schedule.step()
-
-
-            if test_loader:
-                model.eval()
-                with torch.no_grad():
-                    run_epoch(model, optimizer, test_loader, loss_func, device, results, score_funcs, 
-                            prefix="test", desc="Testing Batch")
-                    if val_loader:  
-                        pbar.set_postfix(train_loss=results["train loss"][-1],val_loss=results["val loss"][-1])
-                    else:
-                        pbar.set_postfix(train_loss=results["train loss"][-1],test_loss=results["test loss"][-1])
-
-            if checkpoint_file and early_stop_metric is None:
-                save_checkpoint(epoch, model, optimizer, results, checkpoint_file, lr_schedule)
-
-            if disable_tqdm:
-                # Clear the previous output
-                clear_output(wait=True)
-                
-                # Display the current epoch
-                print(f"Completed Epoch: {epoch + 1}/{epochs}")
-                
-                # Display the last 5 rows of the results DataFrame
-                display(pd.DataFrame(results).tail(5))
-
-            pbar.update(1)
+    if pretend_train and checkpoint_file is not None:
+        try:
+            #print("Attempting to load model and results for pretend training...")
             
-    if del_opt:
-        del optimizer
+            # Load the model
+            model = load_model(model, checkpoint_file, device=device)
+            #print("Model loaded successfully.")
 
-    return pd.DataFrame.from_dict(results)
-'''
+            # Load results
+            results = load_results(checkpoint_file, device=device)
+            #print("Results loaded successfully. Simulating training...")
 
-def train_network(model, loss_func, train_loader, val_loader=None, test_loader=None, score_funcs=None, 
+            # Simulate training with progress bar
+            import time
+            with tqdm(total=epochs, desc="Pretend Training", disable=disable_tqdm, leave=True, dynamic_ncols=True) as pbar:
+                for _ in range(epochs):
+                    time.sleep(5 / epochs)  # Simulate all epochs in 10 seconds
+                    pbar.update(1)
+
+            return results  # Return the actual results loaded from the checkpoint
+
+        except FileNotFoundError:
+            print(f"Checkpoint file {checkpoint_file} not found. Proceeding with actual training...")
+        except Exception as e:
+            print(f"Error during pretend training: {e}. Proceeding with actual training...")
+
+    # Proceed with actual training if pretend_train is False or if loading the model fails
+    return _actual_train_network(
+        model, loss_func, train_loader, val_loader, test_loader, score_funcs, 
+        epochs, device, checkpoint_file, lr_schedule, optimizer, disable_tqdm, 
+        resume_file, resume_checkpoint, early_stop_metric, early_stop_crit, 
+        patience, grad_clip, scheduler_step_per_batch, plateau_metric
+    )
+
+
+def _actual_train_network(model, loss_func, train_loader, val_loader=None, test_loader=None, score_funcs=None, 
                   epochs=50, device="cpu", checkpoint_file=None, lr_schedule=None, optimizer=None, 
                   disable_tqdm=False, resume_file=None, resume_checkpoint=False, 
                   early_stop_metric=None, early_stop_crit="min", patience=4, grad_clip=None,
