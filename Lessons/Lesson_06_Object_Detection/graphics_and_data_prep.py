@@ -22,6 +22,11 @@ from ultralytics import YOLO
 import yaml
 import ipywidgets as widgets
 from ipywidgets import interact, widgets
+from introdl.idlmam import save_checkpoint
+from introdl.utils import load_model, load_results
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="tqdm.autonotebook")
+from tqdm.autonotebook import tqdm
 
 def train_one_epoch(model, optimizer, train_loader, val_loader, device, map_metric, scheduler, step_per_batch=False):
     '''
@@ -107,9 +112,118 @@ def train_one_epoch(model, optimizer, train_loader, val_loader, device, map_metr
     
     return avg_train_loss, avg_val_loss, map_50, map_50_95
 
+def train_rcnn(model, optimizer, scheduler, train_loader, val_loader, device, checkpoint_file, 
+               num_epochs=15, step_per_batch=False, patience=None, pretend_train=False):
+    '''
+    Train a Region-based Convolutional Neural Network (RCNN) model.
+
+    Args:
+        model (torch.nn.Module): The RCNN model to be trained.
+        optimizer (torch.optim.Optimizer): The optimizer used for training.
+        scheduler (torch.optim.lr_scheduler._LRScheduler): Learning rate scheduler.
+        train_loader (torch.utils.data.DataLoader): DataLoader for the training dataset.
+        val_loader (torch.utils.data.DataLoader): DataLoader for the validation dataset.
+        device (torch.device): Device to run the model on (e.g., 'cpu' or 'cuda').
+        checkpoint_file (str): Path to save the final model weights, results, etc.
+        num_epochs (int, optional): Number of epochs to train the model. Default is 15.
+        step_per_batch (bool, optional): Whether to step the scheduler per batch. Default is False.
+        patience (int, optional): Number of epochs to wait for improvement before early stopping. Default is None.
+        pretend_train (bool, optional): If True, simulate training if a checkpoint file is available. Default is False.
+
+    Returns:
+        pd.DataFrame: DataFrame containing training and validation metrics for each epoch.
+    '''
+
+    print(pretend_train, checkpoint_file)
+
+    # Pretend training
+    if pretend_train and checkpoint_file is not None:
+        try:
+            print("Attempting to load model and results for pretend training...")
+
+            # Load the model
+            model = load_model(model, checkpoint_file, device=device)
+            print("Model loaded successfully.")
+
+            # Load results
+            results = load_results(checkpoint_file, device=device)
+            print("Results loaded successfully. Simulating training...")
+
+            # Simulate training with progress bar
+            import time
+            with tqdm(total=num_epochs, desc="Pretend Training", dynamic_ncols=True) as pbar:
+                for _ in range(num_epochs):
+                    time.sleep(5 / num_epochs)  # Simulate all epochs in 5 seconds
+                    pbar.update(1)
+
+            return results  # Return the actual results loaded from the checkpoint
+
+        except FileNotFoundError:
+            print(f"Checkpoint file {checkpoint_file} not found. Proceeding with actual training...")
+        except Exception as e:
+            print(f"Error during pretend training: {e}. Proceeding with actual training...")
+
+    # Initialize mAP metrics for validation
+    map_metric = MeanAveragePrecision(iou_thresholds=[0.5, 0.75])
+
+    # DataFrame to store results
+    results = pd.DataFrame(columns=['epoch', 'train_loss', 'val_loss', 'map_50', 'map_50_95', 'lr'])
+
+    best_map_50_95 = 0
+    epochs_without_improvement = 0
+
+    for epoch in range(num_epochs):
+        # Train and validate for the epoch
+        avg_train_loss, avg_val_loss, map_50, map_50_95 = train_one_epoch(
+            model, optimizer, train_loader, val_loader, device, map_metric, scheduler, step_per_batch)
+        
+        # Get current learning rate
+        current_lr = optimizer.param_groups[0]['lr']
+        
+        # Append results to DataFrame
+        results.loc[len(results)] = {
+            'epoch': epoch + 1,
+            'train_loss': avg_train_loss,
+            'val_loss': avg_val_loss,
+            'map_50': map_50.item(),
+            'map_50_95': map_50_95.item(),
+            'lr': current_lr
+        }
+
+        print((f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {avg_train_loss:.4f}, "
+               f"Val Loss: {avg_val_loss:.4f}, mAP@50: {map_50:.4f}, mAP@50-95: {map_50_95:.4f}, LR: {current_lr:.6f}"))
+
+        # Check for improvement and save the best model if patience is specified
+        if patience is not None:
+            if map_50_95 > best_map_50_95:
+                best_map_50_95 = map_50_95
+                epochs_without_improvement = 0
+                save_checkpoint(epoch, model, optimizer, results, checkpoint_file, scheduler)
+                print(f"Improvement detected. Model weights saved.")
+            else:
+                epochs_without_improvement += 1
+
+            # Early stopping
+            if epochs_without_improvement >= patience:
+                print(f"Early stopping triggered. No improvement for {patience} consecutive epochs.")
+                break
+
+        # Step the scheduler based on mAP@50-95
+        if scheduler and not step_per_batch:
+            scheduler.step(map_50)
+
+    # Save the model from the last epoch if early stopping is not triggered
+    if patience is None or epochs_without_improvement < patience:
+        save_checkpoint(epoch, model, optimizer, results, checkpoint_file, scheduler)
+        print(f"Model weights saved from the last epoch.")
+
+    print(f"Training complete. Best model weights saved at epoch {epoch + 1 - epochs_without_improvement}.")
+    return results
+
+'''
 def train_rcnn(model, optimizer, scheduler, train_loader, val_loader, device, save_file, 
                num_epochs=15, step_per_batch=False, patience=None):
-    '''
+    """
     Train a Region-based Convolutional Neural Network (RCNN) model.
     Args:
         model (torch.nn.Module): The RCNN model to be trained.
@@ -124,7 +238,7 @@ def train_rcnn(model, optimizer, scheduler, train_loader, val_loader, device, sa
         patience (int, optional): Number of epochs to wait for improvement before early stopping. Default is None.
     Returns:
         pd.DataFrame: DataFrame containing training and validation metrics for each epoch.
-    '''
+    """
 
     # Initialize mAP metrics for validation
     map_metric = MeanAveragePrecision(iou_thresholds=[0.5, 0.75])
@@ -187,7 +301,8 @@ def train_rcnn(model, optimizer, scheduler, train_loader, val_loader, device, sa
     print(f"Training complete. Best model weights saved at epoch {epoch + 1 - epochs_without_improvement}.")
 
     return results
-
+'''
+    
 def download_pennfudanped(target_dir: Path) -> None:
     """
     Downloads and unzips the PennFudanPed dataset into the specified directory.

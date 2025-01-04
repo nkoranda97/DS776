@@ -5,6 +5,7 @@ from .idlmam import set_seed
 from .idlmam import weight_reset
 from .idlmam import moveTo
 from .idlmam import train_network
+from .idlmam import save_checkpoint
 from .idlmam import getMaskByFill
 from .idlmam import pad_and_pack
 from .idlmam import Flatten
@@ -28,6 +29,7 @@ __all__ = [
     "weight_reset",
     "moveTo",
     "train_network",
+    "save_checkpoint",
     "getMaskByFill",
     "pad_and_pack",
     "Flatten",

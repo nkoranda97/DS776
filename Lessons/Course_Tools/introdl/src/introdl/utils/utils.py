@@ -44,31 +44,32 @@ def detect_jupyter_environment():
     else:
         return "Unknown"
 
-def config_paths_keys(env_path="../../Resources/local.env", api_keys_env="../../Resources/api_keys.env"):
+def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env="~/Lessons/Course_Tools/api_keys.env"):
     """
     Reads environment variables and sets paths.
     If variables are not set, it uses dotenv to load them based on the environment:
-    - CoCalc: ../../Resources/cocalc.env
-    - Colab: ../../Resources/colab.env
-    - Other: ../../Resources/local.env (default)
+    - CoCalc: ~/Lessons/Course_Tools/cocalc.env
+    - Colab: ~/Lessons/Course_Tools/colab.env
+    - Other: ~/Lessons/Course_Tools/local.env (default)
 
     Additionally, loads API keys from api_keys_env if HF_TOKEN and OPENAI_API_KEY are not already set.
 
     Parameters:
-        env_path (str): Path to the local environment file, defaulting to ../../Resources/local.env.
-        api_keys_env (str): Path to the API keys environment file, defaulting to ../../Resources/api_keys.env.
+        env_path (str): Path to the local environment file, defaulting to ~/Lessons/Course_Tools/local.env.
+        api_keys_env (str): Path to the API keys environment file, defaulting to ~/Lessons/Course_Tools/api_keys.env.
 
     Returns:
         dict: A dictionary with keys 'MODELS_PATH' and 'DATA_PATH'.
     """
     # Determine the environment
+    ## this doesn't work in GCP instance with PyTorch image instead
     environment = detect_jupyter_environment()
     if environment == "cocalc":
-        env_file = "../../Resources/cocalc.env"
+        env_file = Path("~/Lessons/Course_Tools/cocalc.env").expanduser()
     elif environment == "colab":
-        env_file = "../../Resources/colab.env"
+        env_file = Path("~/Lessons/Course_Tools/colab.env").expanduser()
     else:
-        env_file = env_path
+        env_file = Path(env_path).expanduser()
 
     # Load the environment variables from the determined .env file
     load_dotenv(env_file, override=False)
@@ -116,8 +117,38 @@ def get_device():
     else:
         return torch.device('cpu')
 
+def hf_download(checkpoint_file, repo_id, token=None):
+    """
+    Download a file directly from the Hugging Face repository.
 
-def load_results(checkpoint_file, device=torch.device('cpu'), repo_id=None, filename=None):
+    Parameters:
+    - checkpoint_file (str): The path to the local file where the downloaded file will be saved.
+    - repo_id (str): Hugging Face repository ID.
+    - token (str, optional): Hugging Face access token for private repositories.
+
+    Returns:
+    - None: The file is saved directly to the checkpoint_file location.
+    """
+    import os
+    import requests
+
+    # Construct the file download URL
+    base_url = "https://huggingface.co"
+    filename = os.path.basename(checkpoint_file)
+    file_url = f"{base_url}/{repo_id}/resolve/main/{filename}"
+
+    # Download the file directly
+    response = requests.get(file_url, stream=True, headers={"Authorization": f"Bearer {token}"} if token else {})
+    if response.status_code != 200:
+        raise FileNotFoundError(f"Failed to download '{filename}' from {file_url}. Status code: {response.status_code}")
+
+    # Write the file to the desired checkpoint_file location
+    os.makedirs(os.path.dirname(checkpoint_file), exist_ok=True)
+    with open(checkpoint_file, "wb") as f:
+        for chunk in response.iter_content(chunk_size=8192):
+            f.write(chunk)
+
+def load_results(checkpoint_file, device=torch.device('cpu'), repo_id="hobbes99/DS776-models", token=None):
     """
     Load the results from a checkpoint file.
 
@@ -125,26 +156,18 @@ def load_results(checkpoint_file, device=torch.device('cpu'), repo_id=None, file
     - checkpoint_file (str): The path to the checkpoint file.
     - device (torch.device, optional): The device to load the checkpoint onto. Defaults to 'cpu'.
     - repo_id (str, optional): Hugging Face repository ID for downloading the checkpoint if not found locally.
-    - filename (str, optional): Filename in the Hugging Face repository if different from checkpoint_file.
+    - token (str, optional): Hugging Face access token for private repositories.
 
     Returns:
     - results (pd.DataFrame): The loaded results from the checkpoint file.
     """
-    import os
 
-    # Attempt to download from Hugging Face Hub if not available locally
+    # Download the file if it does not exist locally
     if not os.path.exists(checkpoint_file):
         if repo_id is None:
-            raise FileNotFoundError(f"Checkpoint file '{checkpoint_file}' not found locally and no repo_id provided.")
-        # Attempt to download from Hugging Face Hub
-        if not filename:
-            filename = os.path.basename(checkpoint_file)
-        downloaded_file = hf_hub_download(repo_id=repo_id, filename=filename, token=os.getenv('HF_TOKEN'))
+            raise FileNotFoundError(f"Checkpoint file '{checkpoint_file}' not found locally, and no repo_id provided.")
+        hf_download(checkpoint_file, repo_id, token)
 
-        # Move downloaded file to the original checkpoint_file location
-        os.makedirs(os.path.dirname(checkpoint_file), exist_ok=True)
-        shutil.move(downloaded_file, checkpoint_file)
-        
     # Suppress FutureWarning during torch.load
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", FutureWarning)
@@ -155,142 +178,33 @@ def load_results(checkpoint_file, device=torch.device('cpu'), repo_id=None, file
         raise KeyError("Checkpoint does not contain 'results'.")
     return pd.DataFrame(checkpoint_dict['results'])
 
-'''
-def load_results(checkpoint_file, device=torch.device('cpu'), repo_id="hobbes99/DS776-models", filename=None):
+def load_model(model, checkpoint_file, device=torch.device('cpu'), repo_id="hobbes99/DS776-models", token=None):
     """
-    Load the results from a checkpoint file.
-
-    Parameters:
-    - checkpoint_file (str): The path to the checkpoint file.
-    - device (torch.device, optional): The device to load the checkpoint onto. Defaults to 'cpu'.
-    - repo_id (str, optional): Hugging Face repository ID for downloading the checkpoint if not found locally.
-    - filename (str, optional): Filename in the Hugging Face repository if different from checkpoint_file.
-
-    Returns:
-    - results (pd.DataFrame): The loaded results from the checkpoint file.
-    """
-    import os
-
-    # Attempt to download from Hugging Face Hub if not available locally
-    if not os.path.exists(checkpoint_file) and repo_id:
-        if not filename:
-            filename = os.path.basename(checkpoint_file)
-        checkpoint_file = hf_hub_download(repo_id=repo_id, filename=filename)
-
-    # Allowlist numpy scalar
-    torch.serialization.add_safe_globals([np.core.multiarray.scalar])
-
-    # Load the checkpoint with weights_only=True
-    checkpoint_dict = torch.load(checkpoint_file, map_location=device, weights_only=True)
-
-    # Extract the results from the checkpoint
-    if 'results' not in checkpoint_dict:
-        raise KeyError("Checkpoint does not contain 'results'.")
-    return pd.DataFrame(checkpoint_dict['results'])
-'''
-
-'''
-def load_results(ckpt_file, device=torch.device('cpu'), repo_id="hobbes99/DS776-models", filename=None):
-    """
-    Load the results from a checkpoint file. Downloads the file from Hugging Face Hub if it does not exist locally.
-    
-    Parameters:
-    - ckpt_file (str): The local path where the file would typically be saved (for reference).
-    - device (torch.device, optional): The device to load the checkpoint onto. Defaults to 'cpu'.
-    - repo_id (str, optional): Hugging Face model repository identifier.
-    - filename (str, optional): The filename in the Hugging Face repository (if different from ckpt_file name).
-    
-    Returns:
-    - pd.DataFrame: The loaded results as a DataFrame.
-    """
-    if filename is None:
-        filename = ckpt_file.name if hasattr(ckpt_file, 'name') else os.path.basename(ckpt_file)
-    
-    # Download the file or retrieve its cached path
-    hf_file_path = hf_hub_download(repo_id=repo_id, filename=filename)
-    #print(f"Using file from Hugging Face Hub cache: {hf_file_path}")
-    
-    # Load the checkpoint directly from the cached file
-    checkpoint_dict = torch.load(hf_file_path, map_location=device)
-    return pd.DataFrame(checkpoint_dict['results'])
-'''
-
-'''
-def load_results(ckpt_file, device=torch.device('cpu')):
-    """
-    Load the results from a checkpoint file.
-
-    Parameters:
-    - ckpt_file (str): The path to the checkpoint file.
-    - device (torch.device, optional): The device to load the checkpoint onto. Defaults to 'cpu'.
-
-    Returns:
-    - results: The loaded results from the checkpoint file.
-    """
-    checkpoint_dict = torch.load(ckpt_file, map_location=device, weights_only=False) # moves tensors onto 'device'
-    return pd.DataFrame(checkpoint_dict['results'])
-'''
-
-'''
-def load_model(model, checkpoint_file, device=torch.device('cpu')):
-    """
-    Load the model from a checkpoint file.
-
-    Parameters:
-    - model: The model to load. It can be either a class or an instance of the model.
-    - checkpoint_file (str): The path to the checkpoint file.
-    - device (torch.device, optional): The device to load the model onto. Defaults to 'cpu'.
-
-    Returns:
-    - model: The loaded model from the checkpoint file.
-    """
-    if inspect.isclass(model):
-        model = model()
-    elif not isinstance(model, nn.Module):
-        raise ValueError("The model must be a class or an instance of nn.Module.")
-        
-    checkpoint_dict = torch.load(checkpoint_file, weights_only=False, map_location=device)
-    model.load_state_dict(checkpoint_dict['model_state_dict']) 
-    return model.to(device)
-'''
-
-def load_model(model, checkpoint_file, device=torch.device('cpu'), repo_id="hobbes99/DS776-models", filename=None):
-    """
-    Load the model from a checkpoint file, trying locally first, then Hugging Face Hub if not found.
+    Load the model from a checkpoint file, trying locally first, then downloading if not found.
 
     Parameters:
     - model: The model to load. It can be either a class or an instance of the model.
     - checkpoint_file (str): The path to the checkpoint file.
     - device (torch.device, optional): The device to load the model onto. Defaults to 'cpu'.
     - repo_id (str, optional): Hugging Face repository ID for downloading the checkpoint if not found locally.
-    - filename (str, optional): Filename in the Hugging Face repository if different from checkpoint_file.
+    - token (str, optional): Hugging Face access token for private repositories.
 
     Returns:
     - model: The loaded model from the checkpoint file.
     """
-    import os
-    import inspect
-    from huggingface_hub import hf_hub_download
 
-    # Check if checkpoint file exists locally
+    # Download the file if it does not exist locally
     if not os.path.exists(checkpoint_file):
         if repo_id is None:
-            raise FileNotFoundError(f"Checkpoint file '{checkpoint_file}' not found locally and no repo_id provided.")
-        # Attempt to download from Hugging Face Hub
-        if not filename:
-            filename = os.path.basename(checkpoint_file)
-        downloaded_file = hf_hub_download(repo_id=repo_id, filename=filename, token=os.getenv('HF_TOKEN'))
-
-        # Move downloaded file to the original checkpoint_file location
-        os.makedirs(os.path.dirname(checkpoint_file), exist_ok=True)
-        shutil.move(downloaded_file, checkpoint_file)
+            raise FileNotFoundError(f"Checkpoint file '{checkpoint_file}' not found locally, and no repo_id provided.")
+        hf_download(checkpoint_file, repo_id, token)
 
     # Instantiate model if a class is passed
     if inspect.isclass(model):
         model = model()
     elif not isinstance(model, nn.Module):
         raise ValueError("The model must be a class or an instance of nn.Module.")
-    
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", FutureWarning)
         checkpoint_dict = torch.load(checkpoint_file, map_location=device, weights_only=False)
@@ -300,55 +214,6 @@ def load_model(model, checkpoint_file, device=torch.device('cpu'), repo_id="hobb
     model.load_state_dict(checkpoint_dict['model_state_dict'])
     return model.to(device)
 
-'''
-def load_model(model, checkpoint_file, device=torch.device('cpu'), repo_id="hobbes99/DS776-models", filename=None):
-    """
-    Load the model from a checkpoint file, downloading it from Hugging Face Hub if not found locally.
-
-    Parameters:
-    - model: The model to load. It can be either a class or an instance of the model.
-    - checkpoint_file (str): The path to the checkpoint file.
-    - device (torch.device, optional): The device to load the model onto. Defaults to 'cpu'.
-    - repo_id (str, optional): Hugging Face model repository identifier.
-    - filename (str, optional): The filename in the Hugging Face repository (if different from checkpoint_file name).
-
-    Returns:
-    - model: The loaded model from the checkpoint file.
-    """
-    if filename is None:
-        filename = checkpoint_file.name if hasattr(checkpoint_file, 'name') else os.path.basename(checkpoint_file)
-    
-    # Download the file or retrieve its cached path
-    hf_file_path = hf_hub_download(repo_id=repo_id, filename=filename)
-    #print(f"Using file from Hugging Face Hub cache: {hf_file_path}")
-    
-    # Check if the input is a class or an instance of nn.Module
-    if inspect.isclass(model):
-        model = model()
-    elif not isinstance(model, nn.Module):
-        raise ValueError("The model must be a class or an instance of nn.Module.")
-        
-    # Load the checkpoint and the model's state_dict
-    checkpoint_dict = torch.load(hf_file_path, weights_only=False, map_location=device)
-    model.load_state_dict(checkpoint_dict['model_state_dict'])
-    
-    return model.to(device)
-'''
-
-'''
-def summarizer(model, input_size, device=torch.device('cpu'), col_width=20):
-    """
-    Summarizes the given model by displaying the input size, output size, and number of parameters.
-
-    Parameters:
-    - model: The model to summarize.
-    - input_size (tuple): The input size of the model.
-    - device (torch.device, optional): The device to summarize the model on. Defaults to 'cpu'.
-    - col_width (int, optional): The width of each column in the summary table. Defaults to 20.
-    """
-    model = model.to(device)
-    print(summary(model, input_size=input_size, col_width=col_width, col_names=["input_size", "output_size", "num_params"]))
-'''
 
 def summarizer(model, input_size, device=torch.device('cpu'), col_width=20, verbose=False, varnames = True, **kwargs):
     """

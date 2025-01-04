@@ -2,7 +2,7 @@ import os
 import subprocess
 import sys
 
-def ensure_introdl_installed(force_update=False, local_path_pkg='../../resources/introdl'):
+def ensure_introdl_installed(force_update=False, local_path_pkg='~/Lessons/Course_Tools/introdl'):
     """Ensure the `introdl` module is installed, optionally forcing an update."""
     def uninstall_introdl():
         """Uninstall the `introdl` module."""
