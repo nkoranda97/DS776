@@ -305,6 +305,10 @@ def evaluate_classifier(model, dataset, device, display_confusion=True, img_size
         disp = ConfusionMatrixDisplay(confusion_mat, 
                                       display_labels=classes if classes else None)
         disp.plot(ax=ax)
+        # Rotate x-axis labels
+        if classes:
+            ax.set_xticklabels(classes, rotation=45, ha='right')
+        plt.tight_layout()
         plt.show()
 
     # Generate the classification report
