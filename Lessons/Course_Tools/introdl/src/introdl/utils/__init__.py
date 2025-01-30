@@ -17,5 +17,5 @@ __all__ = [
     "create_CIFAR10_loaders",
     "classifer_predict",
     "wrap_print_text",
-    "config_paths_keys",
+    "config_paths_keys"
 ]

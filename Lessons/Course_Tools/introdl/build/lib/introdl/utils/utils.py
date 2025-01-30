@@ -19,8 +19,6 @@ from pathlib import Path
 from huggingface_hub import hf_hub_download
 import warnings
 import shutil
-from IPython.display import display, IFrame
-from IPython.core.display import HTML
 
 try:
     import dotenv
@@ -29,7 +27,6 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "python-dotenv"])
 finally:
     from dotenv import load_dotenv
-
 
 ###########################################################
 # Utility Functions
