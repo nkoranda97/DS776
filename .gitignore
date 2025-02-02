@@ -11,3 +11,6 @@ __pycache__/
 
 # ignore vscode settings
 .vscode/
+
+# Ignore Solutions Notebooks
+Solutions*.ipynb
