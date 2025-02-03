@@ -177,14 +177,11 @@ def create_image_grid(dataset, nrows, ncols, img_size=(64, 64), padding=2, label
             text_y = y + label_height // 2
             draw.text((text_x, text_y), label_text, fill=text_color, font=font, anchor="mm")
 
-    '''
     # Display the final grid image
     if in_notebook():
         display(canvas)  # Display inline in Jupyter notebook
     else:
         canvas.show()  # Open in a separate window if not in a notebook
-    '''
-    display(canvas) # Display inline in Jupyter notebook
 
 def plot_transformed_images(dataset, num_images=5, num_transformed=5, img_size=(64, 64), padding=2, dark_mode=False, cmap=None, mean=None, std=None):
     """
@@ -233,14 +230,11 @@ def plot_transformed_images(dataset, num_images=5, num_transformed=5, img_size=(
             x = j * (img_width + padding)
             canvas.paste(transformed_image, (x, y))
 
-    '''
     # Display the final grid image
     if in_notebook():
         display(canvas)  # Display inline in Jupyter notebook
     else:
         canvas.show()  # Open in a separate window if not in a notebook
-    '''
-    display(canvas) # Display inline in Jupyter notebook
 
 
 def evaluate_classifier(model, dataset, device, display_confusion=True, img_size=(5, 5), 
