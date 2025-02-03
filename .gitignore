@@ -17,3 +17,6 @@ Solutions*.ipynb_checkpoints
 
 # Ignore Solutions Folder
 Solutions/
+
+# Ignore extras folder
+extras/
