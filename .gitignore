@@ -11,3 +11,9 @@ __pycache__/
 
 # ignore vscode settings
 .vscode/
+
+# Ignore Solutions Notebooks
+Solutions*.ipynb_checkpoints
+
+# Ignore Solutions Folder
+Solutions/
