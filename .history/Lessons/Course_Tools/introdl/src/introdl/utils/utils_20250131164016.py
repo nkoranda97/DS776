@@ -75,7 +75,7 @@ def config_paths_keys(env_path="~/Lessons/Course_Tools/local.env", api_keys_env=
         env_file = Path(env_path).expanduser()
 
     # Load the environment variables from the determined .env file
-    load_dotenv(env_file, override=True)
+    load_dotenv(env_file, override=False)
 
     # Load API keys if not already set
     if not os.getenv('HF_TOKEN') or not os.getenv('OPENAI_API_KEY'):
