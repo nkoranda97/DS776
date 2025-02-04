@@ -13,4 +13,10 @@ __pycache__/
 .vscode/
 
 # Ignore Solutions Notebooks
-Solutions*.ipynb
+Solutions*.ipynb_checkpoints
+
+# Ignore Solutions Folder
+Solutions/
+
+# Ignore extras folder
+extras/
