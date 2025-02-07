@@ -20,3 +20,9 @@ Solutions/
 
 # Ignore extras folder
 extras/
+
+# Ignore .history
+.history/
+
+# Ignore pytorch models
+*.pt
