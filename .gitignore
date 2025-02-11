@@ -26,3 +26,8 @@ extras/
 
 # Ignore pytorch models
 *.pt
+
+# local paths are not working correctly, adding these to prevent data upload
+cifar-10-batches-py
+*.tar.gz
+FashionMNIST/
